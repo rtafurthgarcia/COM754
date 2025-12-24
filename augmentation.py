@@ -1,6 +1,7 @@
 import os 
 import time
 import json
+from docx2pdf import convert
 from pydub import AudioSegment
 from azure.keyvault.secrets import SecretClient
 from azure.identity import DefaultAzureCredential
@@ -9,6 +10,19 @@ import azure.cognitiveservices.speech as speechsdk
 from azure.cognitiveservices.speech import SpeechConfig
 from collections import OrderedDict
 import threading
+from openai import OpenAI
+import base64
+from datetime import datetime
+from pydantic import BaseModel, PositiveInt
+from typing import Literal
+
+class TurnOfConversation(BaseModel):
+    text: str 
+    duration: int = 0
+    speaker: Literal["Attacker", "Victim"]
+
+class Conversation(BaseModel):
+    speakers: list[tuple[str, TurnOfConversation]]
 
 def rename_mp3_files(directory: str):
     #DIRECTORY = os.path.join(".", "Audio Recordings", "NV")
@@ -46,6 +60,32 @@ def augment_dataset(src: str, dest: str, counter: int, count_to_reach: int):
             print("Created from {} a separate {} 2min long file".format(file, export_file))
             
             counter += 1
+
+def split_audio_file(src: str, dest: str, conversation: dict | OrderedDict):
+    """
+    Split each turn of a recorded conversation into a separate file into a destination directory
+    
+    :param src: Absolute path to wav file
+    :type src: str
+    :param dest: Export directory
+    :type dest: str
+    :param conversation: Transcript
+    :type conversation: OrderedDict
+    """
+    with open(os.path.join(dest, "transcripts.json"), "w") as json_file:
+        json.dump(conversation, json_file, indent=4, sort_keys=False)
+
+    count = 1
+    for timestamp, conversation in conversation.items():
+        recording = AudioSegment.from_wav(src)
+
+        turn = recording[int(timestamp):int(timestamp)+conversation["duration"]]
+
+        export_file = os.path.join(dest, "{}.{}".format(str(count), "wav"))
+        turn.export(export_file, format="wav")
+
+        count += 1
+        print("Split conversation into {}".format(export_file))
 
 # Conversion to wav is required because diarisation service doesnt support mp3 files
 def convert_existing_mp3s(src: str, dest: str):
@@ -90,12 +130,12 @@ class Transcriber():
         if evt.result.reason == speechsdk.ResultReason.RecognizedSpeech:
             print('\tText={}'.format(evt.result.text))
             print('\tSpeaker ID={}\n'.format(evt.result.speaker_id))  # type: ignore
-            last_timestamp, last_bit_of_conversation = 0, None
+            last_offset, last_turn_of_conversation = 0, None
             if (len(self.ongoing_conversation)) > 0:
-                last_timestamp, last_bit_of_conversation = next(reversed(self.ongoing_conversation.items()))
+                last_offset, last_turn_of_conversation = next(reversed(self.ongoing_conversation.items()))
 
-            if last_bit_of_conversation is not None and last_bit_of_conversation["speaker"] == evt.result.speaker_id:  # type: ignore
-                self.ongoing_conversation[last_timestamp]["text"] += "\n{}".format(evt.result.text)
+            if last_turn_of_conversation is not None and last_turn_of_conversation["speaker"] == evt.result.speaker_id:  # type: ignore
+                self.ongoing_conversation[last_offset]["text"] += "\n{}".format(evt.result.text)
                 #self.ongoing_conversation[last_timestamp]["duration"] += int(evt.result.duration / 10000)
             else:
                 # convert from hundreth of nanosecond to milisecond
@@ -108,8 +148,8 @@ class Transcriber():
 
                 # reason for that
                 # https://learn.microsoft.com/en-us/answers/questions/2237494/diarisation-is-not-picking-up-number-of-speakers-c
-                if last_bit_of_conversation is not None:
-                    self.ongoing_conversation[last_timestamp]["duration"] = int(evt.offset / 10000) - last_timestamp
+                if last_turn_of_conversation is not None:
+                    self.ongoing_conversation[last_offset]["duration"] = int(evt.offset / 10000) - last_offset
 
         elif evt.result.reason == speechsdk.ResultReason.NoMatch:
             print('\tNOMATCH: Speech could not be TRANSCRIBED: {}'.format(evt.result.no_match_details))
@@ -127,20 +167,7 @@ class Transcriber():
         new_directory = file[:-4]
         os.mkdir(new_directory)
 
-        with open(os.path.join(new_directory, "transcripts.json"), "w") as json_file:
-            json.dump(self.ongoing_conversation, json_file, indent=4, sort_keys=False)
-
-        count = 1
-        for timestamp, conversation in self.ongoing_conversation.items():
-            recording = AudioSegment.from_wav(file)
-
-            turn = recording[timestamp:timestamp+conversation["duration"]]
-    
-            export_file = os.path.join(new_directory, "{}.{}".format(str(count), "wav"))
-            turn.export(export_file, format="wav")
-
-            count += 1
-            print("Splitting conversation into {}".format(export_file))
+        split_audio_file(file, new_directory, self.ongoing_conversation)
 
         self.ongoing_conversation.clear()
 
@@ -185,28 +212,181 @@ class Transcriber():
 
             self.split_conversation_into_multiple_files(os.path.join(src, file))
 
+class LLMSplitter:
+    def __init__(self) -> None:
+        keyvault_name = os.environ["KEY_VAULT_NAME"]
 
-transcriber = Transcriber()
-transcriber2 = Transcriber()
+        # Set these variables to the names you created for your secrets
+        KEY_SECRET_NAME = "com754-ai-key"
+        ENDPOINT_SECRET_NAME = "com754-ai-endpoint"
 
-t1 = threading.Thread(target=transcriber.diarise_and_split_dataset, args=(os.path.abspath(os.path.join(".", "Audio Recordings", "NV-Processing")),))
-t2 = threading.Thread(target=transcriber2.diarise_and_split_dataset, args=(os.path.abspath(os.path.join(".", "Audio Recordings", "V-Processing")),))
+        # URI for accessing key vault
+        keyvault_uri = f"https://{keyvault_name}.vault.azure.net"
 
-t1.start()
-t2.start()
+        # Instantiate the client and retrieve secrets
+        credential = DefaultAzureCredential()
+        kv_client = SecretClient(vault_url=keyvault_uri, credential=credential)
 
-t1.join()
-t2.join()
+        print(f"Retrieving your secrets from {keyvault_name}.")
+
+        api_key = kv_client.get_secret(KEY_SECRET_NAME).value
+        endpoint = kv_client.get_secret(ENDPOINT_SECRET_NAME).value
+        self.MODEL = "gpt-5-mini"
+
+        self.client = OpenAI(
+            base_url=endpoint,
+            api_key=api_key
+        )                
+
+    def _fill_out_duration_and_convert_offsets(self, conversations: dict):
+        for offset in conversations.keys():
+            converted_offset = datetime.strptime(offset, "[%M:%S]")
+            miliseconds = (converted_offset.minute * 60 + converted_offset.second) * 1000
+            conversations[str(miliseconds)] = conversations.pop(offset)
+
+        last_offset = None
+        for offset in conversations.keys():
+            if last_offset is not None:
+                conversations[last_offset]["duration"] = int(offset) - int(last_offset)
+                # duration of the last turn will be determined by reading the mp3 directly
+            last_offset = offset            
+
+    def _parse_pdf_into_json(self, file_path: str) -> dict | None:
+        with open(file_path, "rb") as f:
+            data = f.read()
+
+        base64_string = base64.b64encode(data).decode("utf-8")
+        _, tail = os.path.split(file_path)
+
+        response = self.client.responses.create(
+            model=self.MODEL,
+            store=False,
+            reasoning={"effort": "medium"},
+            #instructions=,
+            input=[
+                {
+                    "role": "system",
+                    "content": """
+                        You must output ONLY valid JSON.
+                        Do not include explanations, comments, markdown, or extra text.
+
+                        The output must be a single JSON object (dictionary).
+
+                        Each key in the JSON object:
+                        - Is a STRING representing an offset in minutes and seconds only [mm:ss]
+                        and it must be only integer. 
+
+                        Each value in the JSON object is an object with EXACTLY the following fields:
+
+                        1. "speaker"
+                        - Type: string
+                        - Value MUST be either "Victim" or "Attacker"
+
+                        2. "text"
+                        - Type: string
+                        - The verbatim transcribed speech for that turn
+                        - Preserve line breaks using newline characters (\n) where appropriate
+
+                        3. "duration"
+                        - Type: integer
+                        - Must be set to 0
+
+                        Rules:
+                        - Do NOT wrap the output in an additional top-level field.
+                        - Do NOT add any extra fields inside a turn object.
+                        - Do NOT omit any required fields.
+                        - Do NOT reorder or renumber offsets.
+                        - Keys must be unique.
+                        - The output must be valid JSON and parseable by a standard JSON parser.
+
+                        Example output structure:
+
+                        {
+                        "[0:50]": {
+                            "speaker": "Victim",
+                            "text": "You there?",
+                            "duration": 0
+                        },
+                        "[1:11]": {
+                            "speaker": "Attacker",
+                            "text": "Yeah, OK. Don't hang up.",
+                            "duration": 0
+                        }
+                        }
+                    """
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_file",
+                            "filename": tail,
+                            "file_data": f"data:application/pdf;base64,{base64_string}",
+                        },
+                    ]
+                }
+            ],
+            text={"format": {"type": "json_object"}}
+        )
+
+        conversation = json.loads(response.output_text)
+
+        if response.output_text is not None:
+            self._fill_out_duration_and_convert_offsets(conversations=conversation)
+            print("Parsed {} into a json".format(tail))
+            return conversation
+
+        return None
+    
+    def split_recordings(self):
+        #src = os.path.abspath(os.path.join(".", "Audio Recordings", "V"))
+        src = os.path.abspath(os.path.join(".", "Audio Recordings", "V-Processing"))
+        transcripts_src = os.path.abspath(os.path.join(".", "Transcripts"))
+
+        # try:
+        #     convert(transcripts_src)
+        # except:
+        #     print("An conversion error happened")
+
+        files = [f for f in os.listdir(transcripts_src) if ".pdf" in f]
+        for file in files:
+            transcript_path = os.path.join(transcripts_src, file)
+            audio_path = os.path.join(src, file.replace(".pdf", ".wav"))
+            conversation = self._parse_pdf_into_json(transcript_path)
+
+            if conversation is None:
+                continue
+
+            new_directory = os.path.abspath(os.path.join(src, file[:-4]))
+
+            if (not os.path.exists(new_directory)):
+                os.mkdir(new_directory)
+
+            split_audio_file(audio_path, new_directory, conversation)
+
+#transcriber = Transcriber()
+#transcriber2 = Transcriber()
+
+#t1 = threading.Thread(target=transcriber.diarise_and_split_dataset, args=(os.path.abspath(os.path.join(".", "Audio Recordings", "NV-Processing")),))
+#t2 = threading.Thread(target=transcriber2.diarise_and_split_dataset, args=(os.path.abspath(os.path.join(".", "Audio Recordings", "V-Processing")),))
+
+#t1.start()
+#t2.start()
+
+#t1.join()
+#t2.join()
 # convert_existing_mp3s(
 #     src=os.path.abspath(os.path.join(".", "Audio Recordings", "NV-Processing")),
 #     dest=os.path.abspath(os.path.join(".", "Audio Recordings", "NV-Processing")),
 # )
 
-""" convert_existing_mp3s(
+"""convert_existing_mp3s(
     src=os.path.abspath(os.path.join(".", "Audio Recordings", "V")),
     dest=os.path.abspath(os.path.join(".", "Audio Recordings", "V-Processing")),
-)
- """
+)"""
+
+LLMSplitter().split_recordings()
+
 """ augment_dataset(
     src=os.path.abspath(os.path.join(".", "Audio Recordings", "NV")),
     dest=os.path.abspath(os.path.join(".", "Audio Recordings", "NV-Processing")),
