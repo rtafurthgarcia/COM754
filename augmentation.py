@@ -13,16 +13,17 @@ import threading
 from openai import OpenAI
 import base64
 from datetime import datetime
-from pydantic import BaseModel, PositiveInt
+from pydantic import BaseModel
 from typing import Literal
 
 class TurnOfConversation(BaseModel):
+    offset: str
     text: str 
     duration: int = 0
     speaker: Literal["Attacker", "Victim"]
 
 class Conversation(BaseModel):
-    speakers: list[tuple[str, TurnOfConversation]]
+    root: list[TurnOfConversation]
 
 def rename_mp3_files(directory: str):
     #DIRECTORY = os.path.join(".", "Audio Recordings", "NV")
@@ -61,7 +62,7 @@ def augment_dataset(src: str, dest: str, counter: int, count_to_reach: int):
             
             counter += 1
 
-def split_audio_file(src: str, dest: str, conversation: dict | OrderedDict):
+def split_audio_file(src: str, dest: str, conversation: OrderedDict):
     """
     Split each turn of a recorded conversation into a separate file into a destination directory
     
@@ -238,83 +239,50 @@ class LLMSplitter:
             api_key=api_key
         )                
 
-    def _fill_out_duration_and_convert_offsets(self, conversations: dict):
-        for offset in conversations.keys():
-            converted_offset = datetime.strptime(offset, "[%M:%S]")
-            miliseconds = (converted_offset.minute * 60 + converted_offset.second) * 1000
-            conversations[str(miliseconds)] = conversations.pop(offset)
+    def _convert_json_into_dict(self, conversations_list: list) -> OrderedDict:
+        """
+        Converts a json into an ordered dict and fills out durations based on offset
+        
+        :param conversations: JSON needing converting
+        :type conversations: dict
+        """
+        conversations_dict = OrderedDict()
 
-        last_offset = None
-        for offset in conversations.keys():
-            if last_offset is not None:
-                conversations[last_offset]["duration"] = int(offset) - int(last_offset)
+        last_offset_in_miliseconds = None
+        for turn in conversations_list:
+            offset = datetime.strptime(turn.offset, "%M:%S")
+            offset_in_miliseconds = (offset.minute * 60 + offset.second) * 1000
+            conversations_dict[offset_in_miliseconds] = {
+                "speaker": turn.speaker,  # type: ignore
+                "text": turn.text,
+                "duration": 0
+            }
+
+            if last_offset_in_miliseconds is not None:
+                conversations_dict[last_offset_in_miliseconds]["duration"] = offset_in_miliseconds - last_offset_in_miliseconds
                 # duration of the last turn will be determined by reading the mp3 directly
-            last_offset = offset            
 
-    def _parse_pdf_into_json(self, file_path: str) -> dict | None:
+            last_offset_in_miliseconds = offset_in_miliseconds            
+
+        return conversations_dict
+
+    def _parse_pdf_into_json(self, file_path: str) -> OrderedDict | None:
         with open(file_path, "rb") as f:
             data = f.read()
 
         base64_string = base64.b64encode(data).decode("utf-8")
         _, tail = os.path.split(file_path)
 
-        response = self.client.responses.create(
+        print("Parsing {} into a json".format(tail))
+
+        response = self.client.responses.parse(
             model=self.MODEL,
             store=False,
             reasoning={"effort": "medium"},
-            #instructions=,
+            instructions="""
+                You have to parse the input pdf into a json.
+            """,
             input=[
-                {
-                    "role": "system",
-                    "content": """
-                        You must output ONLY valid JSON.
-                        Do not include explanations, comments, markdown, or extra text.
-
-                        The output must be a single JSON object (dictionary).
-
-                        Each key in the JSON object:
-                        - Is a STRING representing an offset in minutes and seconds only [mm:ss]
-                        and it must be only integer. 
-
-                        Each value in the JSON object is an object with EXACTLY the following fields:
-
-                        1. "speaker"
-                        - Type: string
-                        - Value MUST be either "Victim" or "Attacker"
-
-                        2. "text"
-                        - Type: string
-                        - The verbatim transcribed speech for that turn
-                        - Preserve line breaks using newline characters (\n) where appropriate
-
-                        3. "duration"
-                        - Type: integer
-                        - Must be set to 0
-
-                        Rules:
-                        - Do NOT wrap the output in an additional top-level field.
-                        - Do NOT add any extra fields inside a turn object.
-                        - Do NOT omit any required fields.
-                        - Do NOT reorder or renumber offsets.
-                        - Keys must be unique.
-                        - The output must be valid JSON and parseable by a standard JSON parser.
-
-                        Example output structure:
-
-                        {
-                        "[0:50]": {
-                            "speaker": "Victim",
-                            "text": "You there?",
-                            "duration": 0
-                        },
-                        "[1:11]": {
-                            "speaker": "Attacker",
-                            "text": "Yeah, OK. Don't hang up.",
-                            "duration": 0
-                        }
-                        }
-                    """
-                },
                 {
                     "role": "user",
                     "content": [
@@ -326,15 +294,14 @@ class LLMSplitter:
                     ]
                 }
             ],
-            text={"format": {"type": "json_object"}}
+            text_format=Conversation
         )
 
-        conversation = json.loads(response.output_text)
 
-        if response.output_text is not None:
-            self._fill_out_duration_and_convert_offsets(conversations=conversation)
+        if response.output_parsed is not None:
+            dict_conversation = self._convert_json_into_dict(response.output_parsed.root)
             print("Parsed {} into a json".format(tail))
-            return conversation
+            return dict_conversation
 
         return None
     
