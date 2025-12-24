@@ -77,10 +77,18 @@ def split_audio_file(src: str, dest: str, conversation: OrderedDict):
         json.dump(conversation, json_file, indent=4, sort_keys=False)
 
     count = 1
+
+    if len(conversation) == 0:
+        return 
+    
+    last_timestamp, _ = next(reversed(conversation.items()))
+
     for timestamp, conversation in conversation.items():
         recording = AudioSegment.from_wav(src)
 
         turn = recording[int(timestamp):int(timestamp)+conversation["duration"]]
+        if (last_timestamp == timestamp):
+            turn = recording[int(timestamp):]
 
         export_file = os.path.join(dest, "{}.{}".format(str(count), "wav"))
         turn.export(export_file, format="wav")
@@ -250,19 +258,22 @@ class LLMSplitter:
 
         last_offset_in_miliseconds = None
         for turn in conversations_list:
-            offset = datetime.strptime(turn.offset, "%M:%S")
-            offset_in_miliseconds = (offset.minute * 60 + offset.second) * 1000
-            conversations_dict[offset_in_miliseconds] = {
-                "speaker": turn.speaker,  # type: ignore
-                "text": turn.text,
-                "duration": 0
-            }
+            try:
+                offset = datetime.strptime(turn.offset.replace("[", "").replace("]", ""), "%M:%S")
+                offset_in_miliseconds = (offset.minute * 60 + offset.second) * 1000
+                conversations_dict[offset_in_miliseconds] = {
+                    "speaker": turn.speaker,  # type: ignore
+                    "text": turn.text,
+                    "duration": 0
+                }
 
-            if last_offset_in_miliseconds is not None:
-                conversations_dict[last_offset_in_miliseconds]["duration"] = offset_in_miliseconds - last_offset_in_miliseconds
-                # duration of the last turn will be determined by reading the mp3 directly
+                if last_offset_in_miliseconds is not None:
+                    conversations_dict[last_offset_in_miliseconds]["duration"] = offset_in_miliseconds - last_offset_in_miliseconds
+                    # duration of the last turn will be determined by reading the mp3 directly
 
-            last_offset_in_miliseconds = offset_in_miliseconds            
+                last_offset_in_miliseconds = offset_in_miliseconds
+            except:
+                print("Couldnt interpret this turn {}".format(turn))
 
         return conversations_dict
 
@@ -281,6 +292,7 @@ class LLMSplitter:
             reasoning={"effort": "medium"},
             instructions="""
                 You have to parse the input pdf into a json.
+
             """,
             input=[
                 {
@@ -309,27 +321,35 @@ class LLMSplitter:
         #src = os.path.abspath(os.path.join(".", "Audio Recordings", "V"))
         src = os.path.abspath(os.path.join(".", "Audio Recordings", "V-Processing"))
         transcripts_src = os.path.abspath(os.path.join(".", "Transcripts"))
+        os.chdir(transcripts_src)
+        files = [f for f in os.listdir(transcripts_src) if ".docx" in f and not os.path.exists(f.replace(".docx", ".pdf"))]
+        corrupt_files = []
+        for file in files:
+            try:
+                convert(file)
+            except:
+                print("An conversion error happened for file " + file)
+                corrupt_files.append(file)
 
-        # try:
-        #     convert(transcripts_src)
-        # except:
-        #     print("An conversion error happened")
+        if (len(corrupt_files) > 0):
+            with open(os.path.join(".", "errors.json"), "w") as json_file:
+                json.dump(corrupt_files, json_file, indent=4, sort_keys=False)
 
         files = [f for f in os.listdir(transcripts_src) if ".pdf" in f]
+        
         for file in files:
             transcript_path = os.path.join(transcripts_src, file)
             audio_path = os.path.join(src, file.replace(".pdf", ".wav"))
-            conversation = self._parse_pdf_into_json(transcript_path)
-
-            if conversation is None:
-                continue
-
             new_directory = os.path.abspath(os.path.join(src, file[:-4]))
 
             if (not os.path.exists(new_directory)):
-                os.mkdir(new_directory)
+                conversation = self._parse_pdf_into_json(transcript_path)
 
-            split_audio_file(audio_path, new_directory, conversation)
+                if conversation is None:
+                    continue
+
+                os.mkdir(new_directory)
+                split_audio_file(audio_path, new_directory, conversation)
 
 #transcriber = Transcriber()
 #transcriber2 = Transcriber()
