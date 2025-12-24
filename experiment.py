@@ -1,4 +1,6 @@
 import os 
+import subprocess
+import re
 from azure.keyvault.secrets import SecretClient
 from azure.identity import DefaultAzureCredential
 import azure.cognitiveservices.speech as speechsdk
@@ -35,17 +37,34 @@ class CallerCallee:
         retrieved_key = kv_client.get_secret(AI_KEY_SECRET_NAME).value
         retrieved_endpoint = kv_client.get_secret(AI_ENDPOINT_SECRET_NAME).value
         retrieved_connection = kv_client.get_secret(CS_CONNECTION_STRING_NAME).value or ""
+        self.local_uri = None
 
         self.MODEL = "gpt-5-mini"
         self.ai_client = OpenAI(base_url=retrieved_endpoint, api_key=retrieved_key)
 
         self.cs_client = CommunicationIdentityClient.from_connection_string(conn_str=retrieved_connection)
+
+        self._start_dev_tunnel()
     
     def _analyse_call_for_vishing_naive(self, conversation: OrderedDict):
         raise NotImplementedError
     
     def _analyse_call_for_vishing_enhanced(self, conversation: OrderedDict):
         raise NotImplementedError
+
+    def _start_dev_tunnel(self):
+        self.process = subprocess.Popen(["devtunnel", "host", "-p", "8080"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True, text=True)
+        for i in range(0, 4):
+            if self.process.stdout is not None:
+                line = self.process.stdout.readline()
+                match = re.search(r"https:\/\/([\w_-]+(?:(?:\.[\w_-]+)+))([\w.,@?^=%&:\/~+#-]*[\w@?^=%&\/~+#-])", line)
+                if match is not None:
+                    self.local_uri = match.group()
+                    print("Started devtunnel on port 8080")
+                    break
+            else:
+                break
+
 
     def initiate_calls_from(self, src: str):
         visher_identifier, visher_token = self.cs_client.create_user_and_token(["voip"])
