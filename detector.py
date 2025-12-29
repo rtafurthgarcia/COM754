@@ -1,14 +1,10 @@
 import os 
-import subprocess
-import re
 from typing import Literal
 from azure.keyvault.secrets import SecretClient
 from azure.identity import DefaultAzureCredential
 import azure.cognitiveservices.speech as speechsdk
 from collections import OrderedDict
 from openai import OpenAI
-from azure.communication.callautomation import CallAutomationClient, CommunicationIdentifier
-from azure.communication.identity import CommunicationIdentityClient, CommunicationUserIdentifier
 from pydantic import BaseModel
 
 class FinalDetectorResults(BaseModel):
@@ -71,16 +67,17 @@ return FinalDetectorResults(answer="UNCERTAIN")
 else:
 return FinalDetectorResults(answer="SAFE")"""
 
-class CallerCallee:
+class LLMDetector():
     def __init__(self):
         keyvault_name = os.environ["KEY_VAULT_NAME"]
 
         # Set these variables to the names you created for your secrets
-        SS_KEY_SECRET_NAME = "com754-ss-key"
-        SS_ENDPOINT_SECRET_NAME = "com754-ss-endpoint"
-        AI_KEY_SECRET_NAME = "com754-ai-key"
-        AI_ENDPOINT_SECRET_NAME = "com754-ai-endpoint"
-        CS_CONNECTION_STRING_NAME = "com754-cs-connectionstring"
+        SS_KEY_NAME = "com754-ss-key"
+        SS_ENDPOINT_NAME = "com754-ss-endpoint"
+        AI_KEY_NAME = "com754-ai-key"
+        AI_ENDPOINT_NAME = "com754-ai-endpoint"
+        CS_KEY_NAME = "com754-cs-key"
+        CS_ENDPOINT_NAME = "com754-cs-endpoint"
 
         # URI for accessing key vault
         keyvault_uri = f"https://{keyvault_name}.vault.azure.net"
@@ -91,23 +88,21 @@ class CallerCallee:
 
         print(f"Retrieving your secrets from {keyvault_name}.")
 
-        retrieved_key = kv_client.get_secret(SS_KEY_SECRET_NAME).value
-        retrieved_endpoint = kv_client.get_secret(SS_ENDPOINT_SECRET_NAME).value
+        retrieved_key = kv_client.get_secret(SS_KEY_NAME).value
+        retrieved_endpoint = kv_client.get_secret(SS_ENDPOINT_NAME).value
 
         self.speech_client = speechsdk.SpeechConfig(subscription=retrieved_key, endpoint=retrieved_endpoint)
 
-        retrieved_key = kv_client.get_secret(AI_KEY_SECRET_NAME).value
-        retrieved_endpoint = kv_client.get_secret(AI_ENDPOINT_SECRET_NAME).value
-        retrieved_connection = kv_client.get_secret(CS_CONNECTION_STRING_NAME).value or ""
-        self.local_uri = None
+        retrieved_key = kv_client.get_secret(AI_KEY_NAME).value
+        retrieved_endpoint = kv_client.get_secret(AI_ENDPOINT_NAME).value
 
         self.MODEL = "gpt-5-mini"
         self.ai_client = OpenAI(base_url=retrieved_endpoint, api_key=retrieved_key)
 
-        self.cs_client = CommunicationIdentityClient.from_connection_string(conn_str=retrieved_connection)
+        self.cs_endpoint = kv_client.get_secret(CS_ENDPOINT_NAME).value or ""
+        self.cs_key = kv_client.get_secret(CS_KEY_NAME).value or ""
 
-        self._start_dev_tunnel()
-    
+
     def _analyse_call_for_vishing_naive(self, conversation: OrderedDict) -> FinalDetectorResults | None:
         response = self.ai_client.responses.parse(
             model=self.MODEL,
@@ -146,27 +141,3 @@ class CallerCallee:
         )
 
         return response.output_parsed
-
-    def _start_dev_tunnel(self):
-        self.process = subprocess.Popen(["devtunnel", "host", "-p", "8080"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True, text=True)
-        for i in range(0, 4):
-            if self.process.stdout is not None:
-                line = self.process.stdout.readline()
-                match = re.search(r"https:\/\/([\w_-]+(?:(?:\.[\w_-]+)+))([\w.,@?^=%&:\/~+#-]*[\w@?^=%&\/~+#-])", line)
-                if match is not None:
-                    self.local_uri = match.group()
-                    print("Started devtunnel on port 8080")
-                    break
-            else:
-                break
-
-
-    def initiate_calls_from(self, src: str):
-        caller_identifier, visher_token = self.cs_client.create_user_and_token(["voip"])
-        callee_identifier, callee_token = self.cs_client.create_user_and_token(["voip"])
-
-        visher = CommunicationUserIdentifier(id=caller_identifier.raw_id)
-        callee = CommunicationUserIdentifier(id=caller_identifier.raw_id)
-
-app = CallerCallee()
-app.initiate_calls_from("")
