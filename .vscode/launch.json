@@ -10,8 +10,7 @@
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
-            "postDebugTask": "Cleanup PID files"
-        
+            "preLaunchTask": "Export dev tunnel config"
         }
     ]
 }

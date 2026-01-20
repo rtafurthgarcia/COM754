@@ -4,9 +4,32 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "Cleanup PID files",
+            "label": "Create dev tunnel",
             "type": "shell",
-            "command": "rm *.pid"
+            "command": [
+                "devtunnel create --allow-anonymous --expiration 24h;\n",
+                "devtunnel port create -p 8080 --protocol http;\n",
+                "devtunnel port create -p 8081 --protocol http\n"
+            ]
+        },
+        {
+            "label": "Export dev tunnel config",
+            "type": "shell",
+            "command": "devtunnel show --json > .devtunnel.json"
+        },
+        {
+            "label": "Run dev tunnel",
+            "type": "shell",
+            "command": "devtunnel host",
+            "isBackground": true
+        },
+        {
+            "label": "Clean up dev tunnel",
+            "type": "shell",
+            "command": [
+                "devtunnel delete-all -f;\n",
+                "rm .devtunnel.json"
+            ]
         }
     ]
 }

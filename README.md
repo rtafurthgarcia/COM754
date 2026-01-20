@@ -17,7 +17,23 @@ Starting the project requires following those steps:
 4) Launching the detection system
 5) Launching the caller-callee system
 
-# Authentication with azure
+## Authentication with azure
 ```
 Connect-AzAccount
+```
+
+## Managing tunnels
+Dev tunnels offer a command-line interface (CLI) tool for creating and managing dev tunnels, per
+[MS documentation](https://learn.microsoft.com/en-us/azure/developer/dev-tunnels/cli-commands)
+
+### Creating a tunnel
+```
+devtunnel create --allow-anonymous --expiration 24h
+devtunnel port create -p 8080
+devtunnel port create -p 8081
+```
+
+### Running a tunnel
+```
+devtunnel host
 ```
