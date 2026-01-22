@@ -24,8 +24,6 @@ class DatasetEntry:
     id: int
     path: str
     files: set[str]
-    
-
 
 def deserialise_event(raw_event):
     classes = {
