@@ -6,11 +6,13 @@
     xmlns:local="using:CallerCallee"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:viewModels="using:CallerCallee.ViewModels"
+    xmlns:models="using:CallerCallee.Models"
     mc:Ignorable="d">
 
     <Page.Resources>
         <!-- DataTemplate for folders -->
-        <DataTemplate x:Key="CallTemplate" x:DataType="local:DatasetEntry">
+        <DataTemplate x:Key="CallTemplate" x:DataType="models:DatasetEntry">
             <TreeViewItem AutomationProperties.Name="{x:Bind Name}"
                 ItemsSource="{x:Bind Children}" IsExpanded="True">
                 <StackPanel Orientation="Horizontal">
@@ -22,7 +24,7 @@
         </DataTemplate>
 
         <!-- DataTemplate for files -->
-        <DataTemplate x:Key="TurnOfConversationTemplate" x:DataType="local:DatasetEntry">
+        <DataTemplate x:Key="TurnOfConversationTemplate" x:DataType="models:DatasetEntry">
             <TreeViewItem AutomationProperties.Name="{x:Bind Name}">
                 <StackPanel Orientation="Horizontal">
                     <SymbolIcon Width="20" Symbol="Memo"/>
@@ -33,7 +35,7 @@
         </DataTemplate>
 
         <!-- Template selector for DatasetEntry types -->
-        <local:DatasetEntryTemplateSelector x:Key="DatasetEntryTemplateSelector"
+        <models:DatasetEntryTemplateSelector x:Key="DatasetEntryTemplateSelector"
             CallTemplate="{StaticResource CallTemplate}"
             TurnOfConversationTemplate="{StaticResource TurnOfConversationTemplate}" />
     </Page.Resources>
@@ -52,8 +54,8 @@
         <CommandBar Grid.Row="1" Grid.ColumnSpan="2" DefaultLabelPosition="Right" 
                     VerticalContentAlignment="Center" HorizontalContentAlignment="Stretch"
                     IsOpen="True" Background="Transparent" IsSticky="True">
-            <AppBarButton x:Name="OpenFileAppBarButton" Icon="OpenFile" Label="Open the datasource" Click="OpenFileAppBarButton_Click"/>
-            <AppBarButton x:Name="PlayAppBarButton" Icon="Play" Label="Start the simulation" Click="PlayAppBarButton_Click"/>
+            <AppBarButton x:Name="OpenFileAppBarButton" Icon="OpenFile" Label="Open the datasource"/>
+            <AppBarButton x:Name="PlayAppBarButton" Icon="Play" Label="Start the simulation"/>
             <CommandBar.Content>
                 <TextBlock x:Name="PickedSingleFileTextBlock" Text="No datasource picked"/>
             </CommandBar.Content>
@@ -61,10 +63,10 @@
 
         <!-- TreeView bound to DataSource, using the ItemTemplateSelector -->
         <ScrollView Grid.Row="2" Grid.Column="0">
-            <TreeView x:Name="VishingTree" ItemsSource="{x:Bind DataSourceVishing}" ItemTemplateSelector="{StaticResource DatasetEntryTemplateSelector}" />    
+            <TreeView x:Name="VishingTree" ItemsSource="{x:Bind ViewModel.DataSourceVishing }" ItemTemplateSelector="{StaticResource DatasetEntryTemplateSelector}"/>
         </ScrollView>
         <ScrollView Grid.Row="2" Grid.Column="1">
-            <TreeView x:Name="NonVishingTree" ItemsSource="{x:Bind DataSourceNonVishing}" ItemTemplateSelector="{StaticResource DatasetEntryTemplateSelector}" />
+            <TreeView x:Name="NonVishingTree" ItemsSource="{x:Bind ViewModel.DataSourceNonVishing }" ItemTemplateSelector="{StaticResource DatasetEntryTemplateSelector}" />
         </ScrollView>
 
         <ProgressBar x:Name="ProgressBar" Visibility="Collapsed" Grid.Row="3" IsIndeterminate="True" ShowPaused="False" ShowError="False" />

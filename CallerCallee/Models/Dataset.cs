@@ -6,7 +6,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 
-namespace CallerCallee
+namespace CallerCallee.Models
 {
     public class DatasetEntry
     {

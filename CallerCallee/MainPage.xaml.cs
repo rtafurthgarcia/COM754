@@ -1,4 +1,6 @@
+using CallerCallee.ViewModels;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.DependencyInjection;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.Windows.Storage.Pickers;
@@ -17,20 +19,17 @@ namespace CallerCallee
     /// </summary>
     public sealed partial class MainPage : Page 
     {
-        private List<DatasetEntry>? Dataset;
-
-        public ObservableCollection<DatasetEntry>? DataSourceVishing { get; set; }
-        public ObservableCollection<DatasetEntry>? DataSourceNonVishing { get; set; }
-
+        public MainPageViewModel ViewModel => (MainPageViewModel)DataContext;
         public MainPage()
         {
-            this.InitializeComponent();
-            this.DataContext = this;
+            InitializeComponent();
+            DataContext = Ioc.Default.GetRequiredService<MainPageViewModel>();
         }
+
 
         private async void OpenFileAppBarButton_Click(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
         {
-            if (sender is Button button)
+            /*if (sender is Button button)
             {
                 //disable the button to avoid double-clicking
                 button.IsEnabled = false;
@@ -70,12 +69,7 @@ namespace CallerCallee
                         PlayAppBarButton.IsEnabled = true;
                     }
                 );
-            }
-        }
-
-        private void PlayAppBarButton_Click(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
-        {
-            //DataSourceVishing = GetData();
+            }*/
         }
     }
 }
