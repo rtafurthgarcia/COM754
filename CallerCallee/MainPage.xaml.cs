@@ -1,22 +1,30 @@
+using CommunityToolkit.Mvvm.ComponentModel;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.Windows.Storage.Pickers;
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 
 namespace CallerCallee
 {
     /// <summary>
     /// An empty page that can be used on its own or navigated to within a Frame.
     /// </summary>
-    public sealed partial class MainPage : Page
+    public sealed partial class MainPage : Page 
     {
         private List<DatasetEntry>? Dataset;
 
         public ObservableCollection<DatasetEntry>? DataSourceVishing { get; set; }
         public ObservableCollection<DatasetEntry>? DataSourceNonVishing { get; set; }
+
+        [ObservableProperty]
+        //[NotifyCanExecuteChangedFor(nameof(MyCommand))]
+        //private bool isButtonVisible;
 
         public MainPage()
         {
@@ -44,34 +52,28 @@ namespace CallerCallee
                     ? "Picked: " + new FileInfo(file.Path).Name
                     : "No datasource selected.";
 
-                try
-                {
-                    ProgressBar.Visibility = Microsoft.UI.Xaml.Visibility.Visible;
-                    Dataset = DatasetEntry.LoadDatasetEntries(file.Path);
-                }
-                catch (Exception exception)
-                {
-                    var fileErrorDialog = new ContentDialog
+                
+                ProgressBar.Visibility = Microsoft.UI.Xaml.Visibility.Visible;
+
+                await Task.Run(() => DatasetEntry.LoadDatasetEntries(file.Path))
+                    .ContinueWith(t =>
                     {
-                        Title = "Error while loading the dataset.",
-                        Content = exception.Message,
-                        CloseButtonText = "OK",
-                        XamlRoot = this.XamlRoot,
-                    };
+                        if (t.Exception == null)
+                        {
+                            DataSourceVishing = new ObservableCollection<DatasetEntry>(t.Result.TakeWhile(d => d.Kind == DatasetEntry.DatasetEntryKind.Vishing));
+                            DataSourceNonVishing = new ObservableCollection<DatasetEntry>(t.Result.TakeWhile(d => d.Kind == DatasetEntry.DatasetEntryKind.NotVishing));
+                        }
+                        else
+                        {
 
-                    ContentDialogResult result = await fileErrorDialog.ShowAsync();
-                    return;
-                } 
-                finally
-                {
-                    ProgressBar.Visibility = Microsoft.UI.Xaml.Visibility.Collapsed;
-                    //re-enable the button
-                    button.IsEnabled = true;
-                    PlayAppBarButton.IsEnabled = true;
-                }
+                        }
 
-                DataSourceVishing = new ObservableCollection<DatasetEntry>(Dataset.TakeWhile(d => d.Kind == DatasetEntry.DatasetEntryKind.Vishing));
-                DataSourceVishing = new ObservableCollection<DatasetEntry>(Dataset.TakeWhile(d => d.Kind == DatasetEntry.DatasetEntryKind.NotVishing));
+                        ProgressBar.Visibility = Microsoft.UI.Xaml.Visibility.Collapsed;
+                        //re-enable the button
+                        button.IsEnabled = true;
+                        PlayAppBarButton.IsEnabled = true;
+                    }
+                );
             }
         }
 
