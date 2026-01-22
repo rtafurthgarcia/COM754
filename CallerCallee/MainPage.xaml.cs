@@ -22,10 +22,6 @@ namespace CallerCallee
         public ObservableCollection<DatasetEntry>? DataSourceVishing { get; set; }
         public ObservableCollection<DatasetEntry>? DataSourceNonVishing { get; set; }
 
-        [ObservableProperty]
-        //[NotifyCanExecuteChangedFor(nameof(MyCommand))]
-        //private bool isButtonVisible;
-
         public MainPage()
         {
             this.InitializeComponent();
