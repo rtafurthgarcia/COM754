@@ -38,6 +38,7 @@ namespace CallerCallee
                 .AddTransient<FilePickerService>()
                 .AddTransient<DatasetImportService>()
                 .AddTransient<MainPageViewModel>()
+                .AddTransient<CallerCalleeService>()
                 .BuildServiceProvider());
 
             _window = new MainWindow();

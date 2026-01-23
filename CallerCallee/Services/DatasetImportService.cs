@@ -35,11 +35,16 @@ namespace CallerCallee.Services
 
         internal static DatasetEntry FindTurnsOfConversation(DatasetEntry entry)
         {
+            if (entry.FilePath is null)
+            {
+                throw new KeyNotFoundException("FilePath should not be empty");
+            }
+
             var dir = new DirectoryInfo(entry.FilePath);
             if (dir.Exists)
             {
                 entry.Children = new ObservableCollection<DatasetEntry>(
-                    new DirectoryInfo(entry.FilePath)
+                    [.. new DirectoryInfo(entry.FilePath)
                     .GetFiles("*.wav")
                     .Select(f => new DatasetEntry
                     {
@@ -47,8 +52,7 @@ namespace CallerCallee.Services
                         Type = DisplayType.TurnOfConversation,
                         FilePath = f.FullName,
                         Kind = entry.Kind,
-                    })
-                    .ToList());
+                    })]);
             }
 
             return entry;
@@ -58,14 +62,16 @@ namespace CallerCallee.Services
         {
             var columns = row.Split(',');
 
-            var turnsOfConversation = new ObservableCollection<DatasetEntry>();
-
+            var parentOfParentPath = new DirectoryInfo(parentPath).Parent ?? throw new KeyNotFoundException("FilePath should not be empty");
             return new DatasetEntry
             {
                 Name = columns[0],
                 Type = DisplayType.Call,
                 Kind = columns[2] == "0" ? DatasetEntryKind.NotVishing : DatasetEntryKind.Vishing,
-                FilePath = Path.Combine(new DirectoryInfo(parentPath).Parent.FullName, columns[2] == "0" ? "nv" : "v", columns[0])
+                FilePath = Path.Combine(
+                    parentOfParentPath.FullName,
+                    columns[2] == "0" ? "nv" : "v",
+                    columns[0])
             };
         }
     }

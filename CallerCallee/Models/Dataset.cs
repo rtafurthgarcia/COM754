@@ -22,14 +22,14 @@ namespace CallerCallee.Models
             NotVishing
         }
 
-        public string Name { get; set; }
+        public string? Name { get; set; }
         public DatasetEntryKind Kind { get; set; }
-        public string FilePath { get; set; }
+        public string? FilePath { get; set; }
         public DisplayType Type { get; set; }
         public ObservableCollection<DatasetEntry>? Children { get; set; }
     }
 
-    public class DatasetEntryTemplateSelector : DataTemplateSelector
+    public partial class DatasetEntryTemplateSelector : DataTemplateSelector
     {
         public DataTemplate? CallTemplate { get; set; }
         public DataTemplate? TurnOfConversationTemplate { get; set; }

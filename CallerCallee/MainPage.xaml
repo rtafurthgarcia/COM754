@@ -36,8 +36,8 @@
 
         <!-- Template selector for DatasetEntry types -->
         <models:DatasetEntryTemplateSelector x:Key="DatasetEntryTemplateSelector"
-            CallTemplate="{StaticResource CallTemplate}"
-            TurnOfConversationTemplate="{StaticResource TurnOfConversationTemplate}" />
+                CallTemplate="{StaticResource CallTemplate}"
+                TurnOfConversationTemplate="{StaticResource TurnOfConversationTemplate}" />
     </Page.Resources>
 
     <Grid x:Name="Root" HorizontalAlignment="Stretch" VerticalAlignment="Top">
@@ -52,11 +52,14 @@
         </Grid.ColumnDefinitions>
 
         <CommandBar Grid.Row="1" Grid.ColumnSpan="2" DefaultLabelPosition="Right" 
-                    VerticalContentAlignment="Center" HorizontalContentAlignment="Stretch"
-                    IsOpen="True" Background="Transparent" IsSticky="True">
-            <AppBarButton x:Name="OpenFileAppBarButton" Icon="OpenFile" Label="Open the datasource" 
-                          Click="OpenFileAppBarButton_Click"/>
-            <AppBarButton x:Name="PlayAppBarButton" Icon="Play" Label="Start the simulation"/>
+                VerticalContentAlignment="Center" HorizontalContentAlignment="Stretch"
+                IsOpen="True" Background="Transparent" IsSticky="True">
+            <AppBarButton Icon="OpenFile" Label="Open the datasource" 
+                    Click="OpenFileAppBarButton_Click"/>
+            <AppBarButton Icon="Account" Label="Authenticate" 
+                    Command="{ x:Bind ViewModel.AuthenticateCommand}"/>
+            <AppBarButton Icon="Play" Label="Start the simulation"
+                    Command="{ x:Bind ViewModel.RunSimulationCommand}"/>
             <CommandBar.Content>
                 <TextBlock Text="{x:Bind ViewModel.LoadedDatasetMessage, Mode=OneWay}"/>
             </CommandBar.Content>
@@ -68,6 +71,6 @@
         </ScrollView>
 
         <ProgressBar x:Name="ProgressBar" Visibility="{x:Bind ViewModel.RunSimulationCommand.IsRunning, Mode=OneWay}" 
-                     Grid.Row="3" Value="{x:Bind ViewModel.Progression, Mode=OneWay}"  ShowPaused="False" ShowError="False" />
+                Grid.Row="3" Value="{x:Bind ViewModel.Progression, Mode=OneWay}"  ShowPaused="False" ShowError="False" />
     </Grid>
 </Page>
