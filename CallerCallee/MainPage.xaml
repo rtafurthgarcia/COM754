@@ -54,10 +54,11 @@
         <CommandBar Grid.Row="1" Grid.ColumnSpan="2" DefaultLabelPosition="Right" 
                     VerticalContentAlignment="Center" HorizontalContentAlignment="Stretch"
                     IsOpen="True" Background="Transparent" IsSticky="True">
-            <AppBarButton x:Name="OpenFileAppBarButton" Icon="OpenFile" Label="Open the datasource"/>
+            <AppBarButton x:Name="OpenFileAppBarButton" Icon="OpenFile" Label="Open the datasource" 
+                          Click="OpenFileAppBarButton_Click"/>
             <AppBarButton x:Name="PlayAppBarButton" Icon="Play" Label="Start the simulation"/>
             <CommandBar.Content>
-                <TextBlock x:Name="PickedSingleFileTextBlock" Text="No datasource picked"/>
+                <TextBlock Text="{x:Bind ViewModel.LoadedDatasetMessage, Mode=OneWay}"/>
             </CommandBar.Content>
         </CommandBar>
 

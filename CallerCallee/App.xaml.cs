@@ -1,4 +1,5 @@
-﻿using CallerCallee.ViewModels;
+﻿using CallerCallee.Services;
+using CallerCallee.ViewModels;
 using CommunityToolkit.Mvvm.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
@@ -33,6 +34,9 @@ namespace CallerCallee
             // Register services
             Ioc.Default.ConfigureServices(
                 new ServiceCollection()
+                .AddTransient<DialogService>()
+                .AddTransient<FilePickerService>()
+                .AddTransient<DatasetImportService>()
                 .AddTransient<MainPageViewModel>()
                 .BuildServiceProvider());
 

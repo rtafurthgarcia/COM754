@@ -1,8 +1,12 @@
+using CallerCallee.Services;
 using CallerCallee.ViewModels;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.DependencyInjection;
+using Microsoft.UI;
 using Microsoft.UI.Dispatching;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Navigation;
 using Microsoft.Windows.Storage.Pickers;
 using System;
 using System.Collections;
@@ -23,53 +27,16 @@ namespace CallerCallee
         public MainPage()
         {
             InitializeComponent();
+
             DataContext = Ioc.Default.GetRequiredService<MainPageViewModel>();
         }
 
-
-        private async void OpenFileAppBarButton_Click(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
+        private async void OpenFileAppBarButton_Click(object sender, RoutedEventArgs e)
         {
-            /*if (sender is Button button)
+            if (sender is Button button)
             {
-                //disable the button to avoid double-clicking
-                button.IsEnabled = false;
-                PlayAppBarButton.IsEnabled = false;
-
-                var picker = new FileOpenPicker(button.XamlRoot.ContentIslandEnvironment.AppWindowId);
-                picker.CommitButtonText = "Pick File";
-                picker.FileTypeFilter.Add(".csv");
-                picker.SuggestedStartLocation = PickerLocationId.DocumentsLibrary;
-                picker.ViewMode = PickerViewMode.List;
-
-                // Show the picker dialog window
-                var file = await picker.PickSingleFileAsync();
-                PickedSingleFileTextBlock.Text = file != null
-                    ? "Picked: " + new FileInfo(file.Path).Name
-                    : "No datasource selected.";
-
-                
-                ProgressBar.Visibility = Microsoft.UI.Xaml.Visibility.Visible;
-
-                await Task.Run(() => DatasetEntry.LoadDatasetEntries(file.Path))
-                    .ContinueWith(t =>
-                    {
-                        if (t.Exception == null)
-                        {
-                            DataSourceVishing = new ObservableCollection<DatasetEntry>(t.Result.TakeWhile(d => d.Kind == DatasetEntry.DatasetEntryKind.Vishing));
-                            DataSourceNonVishing = new ObservableCollection<DatasetEntry>(t.Result.TakeWhile(d => d.Kind == DatasetEntry.DatasetEntryKind.NotVishing));
-                        }
-                        else
-                        {
-
-                        }
-
-                        ProgressBar.Visibility = Microsoft.UI.Xaml.Visibility.Collapsed;
-                        //re-enable the button
-                        button.IsEnabled = true;
-                        PlayAppBarButton.IsEnabled = true;
-                    }
-                );
-            }*/
+                await ViewModel.ImportDatasetAsync(button.XamlRoot.ContentIslandEnvironment.AppWindowId);
+            }
         }
     }
 }
