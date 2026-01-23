@@ -1,25 +1,27 @@
 ﻿using Azure.Communication.Calling.WindowsClient;
 using Azure.Communication.Identity;
-using Azure.Core;
 using Azure.Identity;
 using Azure.ResourceManager;
 using Azure.ResourceManager.KeyVault;
 using Azure.Security.KeyVault.Secrets;
-using Microsoft.Identity.Client;
+using CallerCallee.Models;
+using CommunityToolkit.Mvvm.DependencyInjection;
 using System;
 using System.Threading.Tasks;
+using System.Threading;
+using System.Collections.Generic;
 
 namespace CallerCallee.Services
 {
     public sealed class CallerCalleeService
     {
-        private record CallContainer
-        {
-            public required CallTokenCredential ParticipantCredentials;
+        private record CallContainer(
+            CallTokenCredential ParticipantCredentials
+        ) {
             public CallClient? CallClient;
             public CallAgent? CallAgent;
             public CommunicationCall? Call;
-        }
+        };
 
         private CallContainer callerContainer;
         private CallContainer calleeContainer;
@@ -29,17 +31,10 @@ namespace CallerCallee.Services
         private string? keyVaultName;
         private KeyVaultSecret? csEndpoint;
 
-        private readonly CallTokenRefreshOptions callTokenRefreshOptions = new(false);
-        private readonly CallClientOptions callClientOptions = new()
-        {
-            Diagnostics = new CallDiagnosticsOptions()
-            {
-                AppName = "COM754-CallerCallee",
-                AppVersion = "1.0",
-                Tags = ["Calling", "ACS", "Windows"]
-            }
-        };
+        private CallClientOptions callClientOptions;
         private LocalOutgoingAudioStream micStream;
+
+        private DatasetImportService datasetService = Ioc.Default.GetRequiredService<DatasetImportService>();
 
         public async Task<DefaultAzureCredential> Authenticate() {
             var credential = new DefaultAzureCredential();
@@ -50,19 +45,13 @@ namespace CallerCallee.Services
             var kvClient = new SecretClient(new Uri(kvUri), new DefaultAzureCredential());
             csEndpoint = await kvClient.GetSecretAsync(CS_ENDPOINT_NAME);
 
-            var communicationIdentity = new CommunicationIdentityClient(new Uri(kvUri), credential);
+            var communicationIdentity = new CommunicationIdentityClient(new Uri(csEndpoint.Value), credential);
 
             var caller = await communicationIdentity.CreateUserAndTokenAsync(scopes: [CommunicationTokenScope.VoIP]);
             var callee = await communicationIdentity.CreateUserAndTokenAsync(scopes: [CommunicationTokenScope.VoIPJoin]);
 
-            callerContainer = new CallContainer() 
-            { 
-                ParticipantCredentials = new CallTokenCredential(caller.Value.AccessToken.Token)
-            };
-            calleeContainer = new CallContainer()
-            {
-                ParticipantCredentials = new CallTokenCredential(callee.Value.AccessToken.Token)
-            };
+            callerContainer = new CallContainer(new CallTokenCredential(caller.Value.AccessToken.Token));
+            calleeContainer = new CallContainer(new CallTokenCredential(callee.Value.AccessToken.Token));
 
             return credential;
         }
@@ -84,6 +73,16 @@ namespace CallerCallee.Services
 
         private async Task PrepareParticipants()
         {
+            callClientOptions = new()
+            {
+                Diagnostics = new CallDiagnosticsOptions()
+                {
+                    AppName = "COM754-CallerCallee",
+                    AppVersion = "1.0",
+                    Tags = new List<string>(["Calling", "ACS", "Windows"])
+                }
+            };
+
             var callAgentOptions = new CallAgentOptions()
             {
                 DisplayName = $"{Environment.MachineName}/{Environment.UserName}",
@@ -101,7 +100,14 @@ namespace CallerCallee.Services
         {
             await PrepareParticipants();
 
-
+            //ThreadPool.SetMaxThreads(4, 8);
+            while (! datasetService.Dataset!.IsEmpty)
+            {
+                DatasetEntry entry;
+                datasetService.Dataset.TryDequeue(out entry);
+                
+                //callerContainer.CallAgent.StartCallAsync(new UserCallIdentifier(calleeContainer.ParticipantCredentials.))  
+            }
         }
 
         private async void OnIncomingCallAsync(object sender, IncomingCallReceivedEventArgs args)
@@ -125,7 +131,7 @@ namespace CallerCallee.Services
                 {
                     case CallState.Connected:
                         {
-                            await call.StartAudioAsync(micStream);
+                            await PickUp();
                             break;
                         }
                     case CallState.Disconnected:
@@ -138,6 +144,11 @@ namespace CallerCallee.Services
                     default: break;
                 }
             }
+        }
+
+        private async Task PickUp()
+        {
+
         }
     }
 }
