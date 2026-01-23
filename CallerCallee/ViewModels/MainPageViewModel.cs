@@ -1,25 +1,16 @@
-﻿using Azure.Core;
-using Azure.Identity;
+﻿using Azure.Identity;
 using CallerCallee.Models;
 using CallerCallee.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.DependencyInjection;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI;
-using Microsoft.UI.Windowing;
-using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Controls;
 using Microsoft.Windows.AppNotifications;
 using Microsoft.Windows.AppNotifications.Builder;
-using Microsoft.Windows.Storage.Pickers;
 using System;
-using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
-using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
-using Windows.System;
 
 namespace CallerCallee.ViewModels
 {
@@ -67,7 +58,7 @@ namespace CallerCallee.ViewModels
         {
             try
             {
-                await callerCalleeService.StartCall(Credential);
+                await callerCalleeService.StartSimulation(Credential!);
 
             } 
             catch (Exception e)
@@ -83,10 +74,10 @@ namespace CallerCallee.ViewModels
         }
 
         [RelayCommand]
-        public void Authenticate() {
+        public async Task Authenticate() {
             try
             {
-                Credential = callerCalleeService.Authenticate();
+                Credential = await callerCalleeService.Authenticate();
             }
             catch (Exception e)
             {
