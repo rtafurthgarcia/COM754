@@ -20,11 +20,18 @@ namespace CallerCallee.ViewModels
 {
     public partial class MainPageViewModel: ObservableObject
     {
-        public ObservableCollection<DatasetEntry> DataSourceVishing { get; } = new ObservableCollection<DatasetEntry> { }; 
-        public ObservableCollection<DatasetEntry> DataSourceNonVishing { get; } = new ObservableCollection<DatasetEntry> { };
+        public ObservableCollection<DatasetEntry> DataSource { get; } = new ObservableCollection<DatasetEntry> { }; 
 
         [ObservableProperty]
-        public partial string? LoadedDatasetMessage { get; set; }
+        [NotifyCanExecuteChangedFor(nameof(RunSimulationCommand))]
+        private string? loadedDatasetMessage;
+
+        [ObservableProperty]
+        private int? datasetCount;
+
+        [ObservableProperty]
+        private int progression = 0;
+       
 
         public async Task ImportDatasetAsync(WindowId id)
         {
@@ -33,13 +40,24 @@ namespace CallerCallee.ViewModels
                     ? "Picked: " + new FileInfo(file.Path).Name
                     : "No datasource selected.";
 
-            var dataset = await Ioc.Default.GetRequiredService<DatasetImportService>().LoadDatasetEntries(file.Path);
-            dataset
-                .TakeWhile(d => d.Kind == DatasetEntry.DatasetEntryKind.Vishing)
-                .ToList().ForEach(d => DataSourceVishing.Add(d));
-            dataset
-                .TakeWhile(d => d.Kind == DatasetEntry.DatasetEntryKind.NotVishing)
-                .ToList().ForEach(d => DataSourceNonVishing.Add(d));    
+            // only 5 are displayed due to ram space complexity constraints
+            var service = Ioc.Default.GetRequiredService<DatasetImportService>();
+            await service.LoadDatasetEntries(file.Path);
+            DatasetCount = service.Dataset == null ? 0 : service.Dataset.Count;
+
+            //dataset
+            //    .(d => d.Kind == DatasetEntry.DatasetEntryKind.Vishing)
+            //    .Take(5)
+            //    .ToList().ForEach(d => DataSourceVishing.Add(d));
+            //dataset
+            //    .TakeWhile(d => d.Kind == DatasetEntry.DatasetEntryKind.NotVishing)
+            //    .Take(5)
+            //    .ToList().ForEach(d => DataSourceNonVishing.Add(d));    
+        }
+        [RelayCommand]
+        public async Task RunSimulation()
+        { 
+
         }
     }
 }

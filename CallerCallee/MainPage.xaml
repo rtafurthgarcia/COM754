@@ -63,13 +63,11 @@
         </CommandBar>
 
         <!-- TreeView bound to DataSource, using the ItemTemplateSelector -->
-        <ScrollView Grid.Row="2" Grid.Column="0">
-            <TreeView x:Name="VishingTree" ItemsSource="{x:Bind ViewModel.DataSourceVishing }" ItemTemplateSelector="{StaticResource DatasetEntryTemplateSelector}"/>
-        </ScrollView>
         <ScrollView Grid.Row="2" Grid.Column="1">
-            <TreeView x:Name="NonVishingTree" ItemsSource="{x:Bind ViewModel.DataSourceNonVishing }" ItemTemplateSelector="{StaticResource DatasetEntryTemplateSelector}" />
+            <TreeView ItemsSource="{x:Bind ViewModel.DataSource }" ItemTemplateSelector="{StaticResource DatasetEntryTemplateSelector}"/>
         </ScrollView>
 
-        <ProgressBar x:Name="ProgressBar" Visibility="Collapsed" Grid.Row="3" IsIndeterminate="True" ShowPaused="False" ShowError="False" />
+        <ProgressBar x:Name="ProgressBar" Visibility="{x:Bind ViewModel.RunSimulationCommand.IsRunning, Mode=OneWay}" 
+                     Grid.Row="3" Value="{x:Bind ViewModel.Progression, Mode=OneWay}"  ShowPaused="False" ShowError="False" />
     </Grid>
 </Page>

@@ -1,5 +1,6 @@
 ﻿using CallerCallee.Models;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -12,16 +13,24 @@ namespace CallerCallee.Services
 {
     public sealed class DatasetImportService
     {
-        public async Task<List<DatasetEntry>> LoadDatasetEntries(string sourcePath)
+        private ConcurrentQueue<DatasetEntry>? dataset;
+        public ConcurrentQueue<DatasetEntry>? Dataset { 
+            get { return dataset; } 
+        }
+
+        public async Task LoadDatasetEntries(string sourcePath)
         {
+            dataset = new ConcurrentQueue<DatasetEntry>();
+
             var data = await File.ReadAllTextAsync(sourcePath);
             var rows = data.Split(Environment.NewLine);
-            return rows
+            rows
                 .Skip(1)
-                .Where(row => row.Length > 0)
+                .Where(row => row.Length > 3)
                 .Select(s => ParseRow(s, sourcePath))
                 .Select(FindTurnsOfConversation)
-                .ToList();
+                .ToList()
+                .ForEach(dataset.Enqueue);
         }
 
         internal static DatasetEntry FindTurnsOfConversation(DatasetEntry entry)
