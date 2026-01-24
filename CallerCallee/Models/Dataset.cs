@@ -22,20 +22,20 @@ namespace CallerCallee.Models
             NotVishing
         }
 
-        public string? Name { get; set; }
+        public string Name { get; set; }
         public DatasetEntryKind Kind { get; set; }
-        public string? FilePath { get; set; }
+        public string FilePath { get; set; }
         public DisplayType Type { get; set; }
-        public ObservableCollection<DatasetEntry>? Children { get; set; }
+        public ObservableCollection<DatasetEntry> Children { get; set; }
     }
 
     public partial class DatasetEntryTemplateSelector : DataTemplateSelector
     {
-        public DataTemplate? CallTemplate { get; set; }
-        public DataTemplate? TurnOfConversationTemplate { get; set; }
+        public DataTemplate CallTemplate { get; set; }
+        public DataTemplate TurnOfConversationTemplate { get; set; }
 
         // Determines which template to use for each item in the TreeView based on its type.
-        protected override DataTemplate? SelectTemplateCore(object item)
+        protected override DataTemplate SelectTemplateCore(object item)
         {
             var explorerItem = (DatasetEntry)item;
 

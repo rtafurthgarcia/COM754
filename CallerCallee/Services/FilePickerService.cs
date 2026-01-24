@@ -11,13 +11,15 @@ namespace CallerCallee.Services
 {
     public sealed class FilePickerService
     {
-        public async Task<PickFileResult> PickFileDialogAsync(WindowId id)
+        public static async Task<PickFileResult> PickFileDialogAsync(WindowId id)
         {
-            var picker = new FileOpenPicker(id);
-            picker.CommitButtonText = "Pick File";
+            var picker = new FileOpenPicker(id)
+            {
+                CommitButtonText = "Pick File",
+                SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
+                ViewMode = PickerViewMode.List
+            };
             picker.FileTypeFilter.Add(".csv");
-            picker.SuggestedStartLocation = PickerLocationId.DocumentsLibrary;
-            picker.ViewMode = PickerViewMode.List;
 
             // Show the picker dialog window
             return await picker.PickSingleFileAsync();

@@ -66,7 +66,7 @@ namespace CallerCallee.ViewModels
         [RelayCommand]
         public async Task ImportDatasetAsync(WindowId id)
         {
-            var file = await Ioc.Default.GetRequiredService<FilePickerService>().PickFileDialogAsync(id);
+            var file = await FilePickerService.PickFileDialogAsync(id);
             LoadedDatasetMessage = file != null
                     ? "Picked: " + new FileInfo(file.Path).Name
                     : "No datasource selected.";

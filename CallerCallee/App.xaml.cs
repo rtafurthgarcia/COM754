@@ -14,7 +14,7 @@ namespace CallerCallee
     /// </summary>
     public partial class App : Application
     {
-        private Window? _window;
+        private Window _window;
 
         /// <summary>
         /// Initializes the singleton application object.  This is the first line of authored code
@@ -35,10 +35,9 @@ namespace CallerCallee
             Ioc.Default.ConfigureServices(
                 new ServiceCollection()
                 // services
-                .AddTransient<FilePickerService>()
-                .AddTransient<DatasetService>()
-                .AddTransient<CallerCalleeService>()
-                .AddTransient<SettingsService>()
+                .AddSingleton<DatasetService>()
+                .AddSingleton<CallerCalleeService>()
+                .AddSingleton<SettingsService>()
 
                 // models
                 .AddTransient<MainPageViewModel>()

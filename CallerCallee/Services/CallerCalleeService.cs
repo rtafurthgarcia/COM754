@@ -1,40 +1,35 @@
 ﻿using Azure.Communication.Calling.WindowsClient;
 using Azure.Communication.Identity;
+using Azure.Identity;
 using Azure.ResourceManager;
 using Azure.ResourceManager.KeyVault;
 using Azure.Security.KeyVault.Secrets;
+using CallerCallee.Helpers;
 using CallerCallee.Models;
 using CommunityToolkit.Mvvm.DependencyInjection;
+using NAudio.Wave;
 using System;
-using System.Threading.Tasks;
 using System.Collections.Generic;
-using Azure.Identity;
-using WinRT.Interop;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+using Windows.Foundation;
+using static System.Windows.Forms.VisualStyles.VisualStyleElement.TrackBar;
 
 namespace CallerCallee.Services
 {
     public sealed class CallerCalleeService
     {
-        private record CallContainer(
-            CallTokenCredential ParticipantCredentials
-        ) {
-            public CallClient CallClient;
-            public CallAgent CallAgent;
-            public CommunicationCall Call;
-        };
-
-        private CallContainer callerContainer;
-        private CallContainer calleeContainer;
-
         private static readonly string CS_ENDPOINT_NAME = "com754-cs-endpoint";
 
         private string keyVaultName;
         private KeyVaultSecret csEndpoint;
 
-        private CallClientOptions callClientOptions;
-        private LocalOutgoingAudioStream micStream;
-
-        private DatasetService datasetService = Ioc.Default.GetRequiredService<DatasetService>();
+        private CommunicationUserIdentifierAndToken callerIdentity;
+        private CommunicationUserIdentifierAndToken calleeIdentity;
+        // A padding interval to make the output more orderly.
+        private int padding;
+        private int semaphoreCount;
 
         public async Task<DefaultAzureCredential> Authenticate() {
             var credential = new DefaultAzureCredential();
@@ -47,11 +42,8 @@ namespace CallerCallee.Services
 
             var communicationIdentity = new CommunicationIdentityClient(new Uri(csEndpoint.Value), credential);
 
-            var caller = await communicationIdentity.CreateUserAndTokenAsync(scopes: new[] { CommunicationTokenScope.VoIP });
-            var callee = await communicationIdentity.CreateUserAndTokenAsync(scopes: new[] { CommunicationTokenScope.VoIPJoin });
-
-            callerContainer = new CallContainer(new CallTokenCredential(caller.Value.AccessToken.Token, new CallTokenRefreshOptions(false)));
-            calleeContainer = new CallContainer(new CallTokenCredential(callee.Value.AccessToken.Token, new CallTokenRefreshOptions(false)));
+            callerIdentity = await communicationIdentity.CreateUserAndTokenAsync(scopes: [CommunicationTokenScope.VoIP]);
+            calleeIdentity = await communicationIdentity.CreateUserAndTokenAsync(scopes: [CommunicationTokenScope.VoIPJoin]);
 
             return credential;
         }
@@ -71,84 +63,38 @@ namespace CallerCallee.Services
             throw new AuthenticationFailedException("Could not find the keyvault name");
         }
 
-        private async Task PrepareParticipants()
-        {
-            callClientOptions = new()
-            {
-                Diagnostics = new CallDiagnosticsOptions()
-                {
-                    AppName = "COM754-CallerCallee",
-                    AppVersion = "1.0",
-                    Tags = new List<string>(["Calling", "ACS", "Windows"])
-                }
-            };
-
-            var callAgentOptions = new CallAgentOptions()
-            {
-                DisplayName = $"{Environment.MachineName}/{Environment.UserName}",
-            };
-
-            callerContainer?.CallClient = new(callClientOptions);
-            callerContainer?.CallAgent = await callerContainer?.CallClient?.CreateCallAgentAsync(callerContainer.ParticipantCredentials, callAgentOptions);
-
-            calleeContainer?.CallClient = new(callClientOptions);
-            calleeContainer?.CallAgent = await calleeContainer?.CallClient?.CreateCallAgentAsync(calleeContainer.ParticipantCredentials, callAgentOptions);
-            calleeContainer?.CallAgent.IncomingCallReceived += OnIncomingCallAsync;
-        }
-
         public async Task StartSimulation(DefaultAzureCredential credential)
         {
-            await PrepareParticipants();
-
-            //ThreadPool.SetMaxThreads(4, 8);
-            while (! datasetService.Dataset!.IsEmpty)
+            ArgumentNullException.ThrowIfNull(credential);
+            var semaphore = new SemaphoreSlim(4); // Limit to 4 concurrent tasks
+            var dataset = Ioc.Default.GetRequiredService<DatasetService>().Dataset;
+            var ongoingPhoneCalls = new Task[dataset.Count];
+            int counter = 0;
+            
+            while (dataset.IsEmpty)
             {
-                DatasetEntry entry;
-                datasetService.Dataset.TryDequeue(out entry);
-                
-                //callerContainer.CallAgent.StartCallAsync(new UserCallIdentifier(calleeContainer.ParticipantCredentials.))  
-            }
-        }
-
-        private async void OnIncomingCallAsync(object sender, IncomingCallReceivedEventArgs args)
-        {
-            var incomingCall = args.IncomingCall;
-
-            var acceptCallOptions = new AcceptCallOptions() { };
-
-            callerContainer?.Call = await incomingCall.AcceptAsync(acceptCallOptions);
-            callerContainer?.Call.StateChanged += OnStateChangedAsync;
-        }
-
-        private async void OnStateChangedAsync(object sender, PropertyChangedEventArgs args)
-        {
-            var call = sender as CommunicationCall;
-            if (call != null)
-            {
-                var state = call.State;
-                // Update the UI
-                switch (state)
+                ongoingPhoneCalls[counter] = Task.Run(() =>
                 {
-                    case CallState.Connected:
-                        {
-                            await PickUp();
-                            break;
-                        }
-                    case CallState.Disconnected:
-                        {
-                            call.StateChanged -= OnStateChangedAsync;
-                            call.Dispose();
+                    semaphore.Wait();
+                    try
+                    {
+                        Interlocked.Add(ref padding, 100);
 
-                            break;
-                        }
-                    default: break;
-                }
+                        dataset.TryDequeue(out DatasetEntry entry);
+
+                        var phoneCall = new PhoneCall(callerIdentity.AccessToken.Token, calleeIdentity.AccessToken.Token, entry);
+                        phoneCall.DialUp().Wait();
+                        counter += 1;
+                    }
+                    finally
+                    {
+                        semaphoreCount = semaphore.Release();
+                    }
+                });
             }
-        }
 
-        private async Task PickUp()
-        {
-
+            semaphore.Release();
+            await Task.WhenAll(ongoingPhoneCalls);
         }
     }
 }

@@ -13,7 +13,7 @@ namespace CallerCallee.Services
 {
     public sealed class DatasetService
     {
-        private ConcurrentQueue<DatasetEntry> dataset = new();
+        private readonly ConcurrentQueue<DatasetEntry> dataset = new();
         public ConcurrentQueue<DatasetEntry> Dataset { 
             get { return dataset; } 
         }
