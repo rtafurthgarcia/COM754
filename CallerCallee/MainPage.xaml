@@ -67,14 +67,18 @@
         </CommandBar>
 
         <!-- TreeView bound to DataSource, using the ItemTemplateSelector -->
-        
-        <TreeView ItemsSource="{x:Bind ViewModel.DataSource }" ItemTemplateSelector="{StaticResource DatasetEntryTemplateSelector}"/>
-
+        <ScrollView Grid.Row="2" Grid.Column="1">
+            <TreeView ItemsSource="{x:Bind ViewModel.DataSource }" ItemTemplateSelector="{StaticResource DatasetEntryTemplateSelector}"/>
+        </ScrollView>
 
         <ProgressBar x:Name="ProgressBar" Visibility="{x:Bind ViewModel.RunSimulationCommand.IsRunning, Mode=OneWay}" 
                 Grid.ColumnSpan="2" Grid.Row="3" Value="{x:Bind ViewModel.Progression, Mode=OneWay}" ShowPaused="False" 
                 ShowError="{x:Bind ViewModel.AuthenticateCommand.ExecutionTask.IsFaulted}"/>
-        
+
+        <ProgressBar x:Name="ProgressBarInfinite" Visibility="{x:Bind ViewModel.AuthenticateCommand.IsRunning), Mode=OneWay}" 
+            Grid.ColumnSpan="2" Grid.Row="3"  IsIndeterminate="True" ShowPaused="False" 
+                ShowError="{x:Bind ViewModel.AuthenticateCommand.ExecutionTask.IsFaulted}" />
+
         <InfoBar IsOpen="{x:Bind ViewModel.AuthenticateCommand.ExecutionTask.IsFaulted}" 
                  Severity="Error" Title="Error" Message="{x:Bind ViewModel.AuthenticateCommand.ExecutionTask.Exception.Message}" />
     </Grid>

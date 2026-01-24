@@ -35,7 +35,7 @@ namespace CallerCallee
         {
             if (sender is Button button)
             {
-                //await ViewModel.ImportDatasetAsync(button.XamlRoot.ContentIslandEnvironment.AppWindowId);
+                await ViewModel.ImportDatasetAsync(button.XamlRoot.ContentIslandEnvironment.AppWindowId);
             }
         }
     }
