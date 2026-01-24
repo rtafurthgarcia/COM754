@@ -44,8 +44,6 @@ namespace CallerCallee.Models
         }
 
         public async Task DialUp() {
-            var callAgentOptions = 
-
             caller.CallClient = new(callClientOptions);
             caller.CallAgent = await caller.CallClient?.CreateCallAgentAsync(
                 caller.ParticipantCredentials,
@@ -65,7 +63,7 @@ namespace CallerCallee.Models
             callee.CallAgent.IncomingCallReceived += OnIncomingCallAsync;
 
             await caller.CallAgent.StartCallAsync(
-                [new UserCallIdentifier(callee.ParticipantCredentials.Token.Token)],
+                new[] { new UserCallIdentifier(callee.ParticipantCredentials.Token.Token) },
                 GetOutgoingCallOptions()
             );
         }
@@ -221,10 +219,8 @@ namespace CallerCallee.Models
                         }
                     }
 
-                    var buffer = new RawAudioBuffer
-                    {
-                        Buffer = memoryBuffer
-                    };
+                    var buffer = new RawAudioBuffer();
+                    buffer.Buffer = memoryBuffer;
                     stream.SendRawAudioBufferAsync(buffer).Wait();
 
                     // Maintain 20 ms cadence

@@ -25,8 +25,8 @@ namespace CallerCallee.Services
         private string keyVaultName;
         private KeyVaultSecret csEndpoint;
 
-        private CommunicationUserIdentifierAndToken callerIdentity;
-        private CommunicationUserIdentifierAndToken calleeIdentity;
+        CommunicationIdentityClient communicationIdentity;
+
         // A padding interval to make the output more orderly.
         private int padding;
         private int semaphoreCount;
@@ -40,10 +40,7 @@ namespace CallerCallee.Services
             var kvClient = new SecretClient(new Uri(kvUri), new DefaultAzureCredential());
             csEndpoint = await kvClient.GetSecretAsync(CS_ENDPOINT_NAME);
 
-            var communicationIdentity = new CommunicationIdentityClient(new Uri(csEndpoint.Value), credential);
-
-            callerIdentity = await communicationIdentity.CreateUserAndTokenAsync(scopes: [CommunicationTokenScope.VoIP]);
-            calleeIdentity = await communicationIdentity.CreateUserAndTokenAsync(scopes: [CommunicationTokenScope.VoIPJoin]);
+            communicationIdentity = new CommunicationIdentityClient(new Uri(csEndpoint.Value), credential);
 
             return credential;
         }
@@ -71,9 +68,9 @@ namespace CallerCallee.Services
             var ongoingPhoneCalls = new Task[dataset.Count];
             int counter = 0;
             
-            while (dataset.IsEmpty)
+            while (!dataset.IsEmpty)
             {
-                ongoingPhoneCalls[counter] = Task.Run(() =>
+                ongoingPhoneCalls[counter] = Task.Run(async () =>
                 {
                     semaphore.Wait();
                     try
@@ -82,8 +79,11 @@ namespace CallerCallee.Services
 
                         dataset.TryDequeue(out DatasetEntry entry);
 
-                        var phoneCall = new PhoneCall(callerIdentity.AccessToken.Token, calleeIdentity.AccessToken.Token, entry);
-                        phoneCall.DialUp().Wait();
+                        var callerIdentity = await communicationIdentity.CreateUserAndTokenAsync(scopes: [CommunicationTokenScope.VoIP]);
+                        var calleeIdentity = await communicationIdentity.CreateUserAndTokenAsync(scopes: [CommunicationTokenScope.VoIPJoin]);
+
+                        var phoneCall = new PhoneCall(callerIdentity.Value.AccessToken.Token, calleeIdentity.Value.AccessToken.Token, entry);
+                        await phoneCall.DialUp();
                         counter += 1;
                     }
                     finally
