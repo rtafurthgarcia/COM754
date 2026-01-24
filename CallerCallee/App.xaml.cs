@@ -34,9 +34,8 @@ namespace CallerCallee
             // Register services
             Ioc.Default.ConfigureServices(
                 new ServiceCollection()
-                .AddTransient<DialogService>()
                 .AddTransient<FilePickerService>()
-                .AddTransient<DatasetImportService>()
+                .AddTransient<DatasetService>()
                 .AddTransient<MainPageViewModel>()
                 .AddTransient<CallerCalleeService>()
                 .BuildServiceProvider());

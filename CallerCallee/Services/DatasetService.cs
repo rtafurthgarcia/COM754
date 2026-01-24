@@ -11,7 +11,7 @@ using static CallerCallee.Models.DatasetEntry;
 
 namespace CallerCallee.Services
 {
-    public sealed class DatasetImportService
+    public sealed class DatasetService
     {
         private ConcurrentQueue<DatasetEntry>? dataset;
         public ConcurrentQueue<DatasetEntry>? Dataset { 

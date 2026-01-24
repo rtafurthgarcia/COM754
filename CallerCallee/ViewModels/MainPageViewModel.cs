@@ -36,8 +36,11 @@ namespace CallerCallee.ViewModels
         [NotifyCanExecuteChangedFor(nameof(RunSimulationCommand))]
         public partial DefaultAzureCredential? Credential { get; set; }
 
-        private readonly DatasetImportService datasetImportService = Ioc.Default.GetRequiredService<DatasetImportService>();
+        private readonly DatasetService datasetImportService = Ioc.Default.GetRequiredService<DatasetService>();
         private readonly CallerCalleeService callerCalleeService = Ioc.Default.GetRequiredService<CallerCalleeService>();
+
+        [ObservableProperty]
+        public partial Exception? Exception { get; set; }
 
         public async Task ImportDatasetAsync(WindowId id)
         {
@@ -59,7 +62,6 @@ namespace CallerCallee.ViewModels
             try
             {
                 await callerCalleeService.StartSimulation(Credential!);
-
             } 
             catch (Exception e)
             {
@@ -74,7 +76,8 @@ namespace CallerCallee.ViewModels
         }
 
         [RelayCommand]
-        public async Task Authenticate() {
+        public async Task Authenticate() 
+        {
             try
             {
                 Credential = await callerCalleeService.Authenticate();
