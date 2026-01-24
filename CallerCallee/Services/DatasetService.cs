@@ -13,14 +13,14 @@ namespace CallerCallee.Services
 {
     public sealed class DatasetService
     {
-        private ConcurrentQueue<DatasetEntry>? dataset;
-        public ConcurrentQueue<DatasetEntry>? Dataset { 
+        private ConcurrentQueue<DatasetEntry> dataset = new();
+        public ConcurrentQueue<DatasetEntry> Dataset { 
             get { return dataset; } 
         }
 
         public async Task LoadDatasetEntries(string sourcePath)
         {
-            dataset = new ConcurrentQueue<DatasetEntry>();
+            dataset.Clear();
 
             var data = await File.ReadAllTextAsync(sourcePath);
             var rows = data.Split(Environment.NewLine);
@@ -60,7 +60,7 @@ namespace CallerCallee.Services
 
         internal static DatasetEntry ParseRow(string row, string parentPath)
         {
-            var columns = row.Split(',');
+            var columns = row.Split(';');
 
             var parentOfParentPath = new DirectoryInfo(parentPath).Parent ?? throw new KeyNotFoundException("FilePath should not be empty");
             return new DatasetEntry

@@ -34,10 +34,14 @@ namespace CallerCallee
             // Register services
             Ioc.Default.ConfigureServices(
                 new ServiceCollection()
+                // services
                 .AddTransient<FilePickerService>()
                 .AddTransient<DatasetService>()
-                .AddTransient<MainPageViewModel>()
                 .AddTransient<CallerCalleeService>()
+                .AddTransient<SettingsService>()
+
+                // models
+                .AddTransient<MainPageViewModel>()
                 .BuildServiceProvider());
 
             _window = new MainWindow();

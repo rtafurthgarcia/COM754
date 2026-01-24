@@ -18,9 +18,9 @@ namespace CallerCallee.Services
         private record CallContainer(
             CallTokenCredential ParticipantCredentials
         ) {
-            public CallClient? CallClient;
-            public CallAgent? CallAgent;
-            public CommunicationCall? Call;
+            public CallClient CallClient;
+            public CallAgent CallAgent;
+            public CommunicationCall Call;
         };
 
         private CallContainer callerContainer;
@@ -28,8 +28,8 @@ namespace CallerCallee.Services
 
         private static readonly string CS_ENDPOINT_NAME = "com754-cs-endpoint";
 
-        private string? keyVaultName;
-        private KeyVaultSecret? csEndpoint;
+        private string keyVaultName;
+        private KeyVaultSecret csEndpoint;
 
         private CallClientOptions callClientOptions;
         private LocalOutgoingAudioStream micStream;

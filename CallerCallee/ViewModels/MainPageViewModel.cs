@@ -20,28 +20,48 @@ namespace CallerCallee.ViewModels
 
         [ObservableProperty]
         [NotifyCanExecuteChangedFor(nameof(RunSimulationCommand))]
-        public partial string? LoadedDatasetMessage { get; set; }
+        public partial string LoadedDatasetMessage { get; set; }
 
         [ObservableProperty]
         public partial int? DatasetCount { get; set; }
 
         [ObservableProperty]
         public partial int Progression { get; set; } = 0;
+
+        [ObservableProperty]
+        public partial bool Autorun { get; set; } = false;
+
+        [ObservableProperty]
+        [NotifyCanExecuteChangedFor(nameof(RunSimulationCommand))]
+        public partial DefaultAzureCredential Credential { get; set; }
+
+        private readonly DatasetService datasetService = Ioc.Default.GetRequiredService<DatasetService>();
+        private readonly CallerCalleeService callerCalleeService = Ioc.Default.GetRequiredService<CallerCalleeService>();
+        private readonly SettingsService settingsService = Ioc.Default.GetRequiredService<SettingsService>();
+
+        public MainPageViewModel()
+        {
+            Autorun = settingsService.GetValue<bool>("autorun");
+
+            if (Autorun)
+            {
+                ImportDatasetCommand.Execute(this);
+                AuthenticateCommand.Execute(this);
+            }
+        }
+
         private bool CanRunSimulation()
         {
             return Credential is not null && LoadedDatasetMessage is not null;
         }
 
-        [ObservableProperty]
-        [NotifyCanExecuteChangedFor(nameof(RunSimulationCommand))]
-        public partial DefaultAzureCredential? Credential { get; set; }
+        [RelayCommand]
+        public void SetAutorun()
+        {
+            settingsService.SetValue("autorun", Autorun);
+        }
 
-        private readonly DatasetService datasetImportService = Ioc.Default.GetRequiredService<DatasetService>();
-        private readonly CallerCalleeService callerCalleeService = Ioc.Default.GetRequiredService<CallerCalleeService>();
-
-        [ObservableProperty]
-        public partial Exception? Exception { get; set; }
-
+        [RelayCommand]
         public async Task ImportDatasetAsync(WindowId id)
         {
             var file = await Ioc.Default.GetRequiredService<FilePickerService>().PickFileDialogAsync(id);
@@ -53,8 +73,9 @@ namespace CallerCallee.ViewModels
                 return;
             }
 
-            await datasetImportService.LoadDatasetEntries(file.Path);
-            DatasetCount = datasetImportService.Dataset == null ? 0 : datasetImportService.Dataset.Count; 
+            await datasetService.LoadDatasetEntries(file.Path);
+            DatasetCount = datasetService.Dataset == null ? 0 : datasetService.Dataset.Count;
+            settingsService.SetValue("datasetpath", file.Path);
         }
         [RelayCommand(CanExecute = nameof(CanRunSimulation))]
         public async Task RunSimulation()

@@ -8,7 +8,6 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:viewModels="using:CallerCallee.ViewModels"
     xmlns:models="using:CallerCallee.Models"
-    xmlns:sys="using:System"
     mc:Ignorable="d">
 
     <Page.Resources>
@@ -41,19 +40,19 @@
                 TurnOfConversationTemplate="{StaticResource TurnOfConversationTemplate}" />
     </Page.Resources>
 
-    <Grid x:Name="Root" HorizontalAlignment="Stretch" VerticalAlignment="Top">
+    <Grid x:Name="Root" HorizontalAlignment="Left" VerticalAlignment="Top" ColumnSpacing="8">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"></RowDefinition>
             <RowDefinition Height="Auto"></RowDefinition>
             <RowDefinition Height="Auto"></RowDefinition>
         </Grid.RowDefinitions>
-        <Grid.ColumnDefinitions>
+        <Grid.ColumnDefinitions >
             <ColumnDefinition Width="*"></ColumnDefinition>
             <ColumnDefinition Width="*"></ColumnDefinition>
         </Grid.ColumnDefinitions>
 
-        <CommandBar Grid.Row="1" Grid.ColumnSpan="2" DefaultLabelPosition="Right" 
-                VerticalContentAlignment="Center" HorizontalContentAlignment="Stretch"
+        <CommandBar Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="1" DefaultLabelPosition="Right" 
+                VerticalContentAlignment="Top" HorizontalContentAlignment="Left"
                 IsOpen="True" Background="Transparent" IsSticky="True">
             <AppBarButton Icon="OpenFile" Label="Open the datasource" 
                     Click="OpenFileAppBarButton_Click"/>
@@ -66,20 +65,25 @@
             </CommandBar.Content>
         </CommandBar>
 
+        <!--<CheckBox Grid.Row="1" Grid.Column="2" Content="Autorun" IsChecked="{x:Bind ViewModel.Autorun, Mode=OneWay}">
+            <CheckBox.Behaviors>
+                <toolkit:EventToCommandBehavior
+                EventName="Clicked"
+                BindingContext="{Binding Path=BindingContext, Source={x:Reference MyButton}, x:DataType=Button}"
+                Command="{Binding Source={x:Reference Page}, Path=BindingContext.MyCustomCommand, x:DataType=ContentPage}" />
+            </CheckBox.Behaviors>
+        </CheckBox>-->
+
         <!-- TreeView bound to DataSource, using the ItemTemplateSelector -->
         <ScrollView Grid.Row="2" Grid.Column="1">
             <TreeView ItemsSource="{x:Bind ViewModel.DataSource }" ItemTemplateSelector="{StaticResource DatasetEntryTemplateSelector}"/>
         </ScrollView>
 
         <ProgressBar x:Name="ProgressBar" Visibility="{x:Bind ViewModel.RunSimulationCommand.IsRunning, Mode=OneWay}" 
-                Grid.ColumnSpan="2" Grid.Row="3" Value="{x:Bind ViewModel.Progression, Mode=OneWay}" ShowPaused="False" 
-                ShowError="{x:Bind ViewModel.AuthenticateCommand.ExecutionTask.IsFaulted}"/>
+                Grid.ColumnSpan="2" Grid.Row="3" Value="{x:Bind ViewModel.Progression, Mode=OneWay}" ShowPaused="False"/>
 
-        <ProgressBar x:Name="ProgressBarInfinite" Visibility="{x:Bind ViewModel.AuthenticateCommand.IsRunning), Mode=OneWay}" 
+        <ProgressBar x:Name="ProgressBarInfinite"
             Grid.ColumnSpan="2" Grid.Row="3"  IsIndeterminate="True" ShowPaused="False" 
-                ShowError="{x:Bind ViewModel.AuthenticateCommand.ExecutionTask.IsFaulted}" />
-
-        <InfoBar IsOpen="{x:Bind ViewModel.AuthenticateCommand.ExecutionTask.IsFaulted}" 
-                 Severity="Error" Title="Error" Message="{x:Bind ViewModel.AuthenticateCommand.ExecutionTask.Exception.Message}" />
+                     Visibility="{x:Bind  ViewModel.AuthenticateCommand.IsRunning }"/>
     </Grid>
 </Page>
