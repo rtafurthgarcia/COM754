@@ -20,6 +20,7 @@ namespace CallerCallee.ViewModels
 
         [ObservableProperty]
         [NotifyCanExecuteChangedFor(nameof(RunSimulationCommand))]
+        [NotifyPropertyChangedFor(nameof(IsBusy))]
         public partial string LoadedDatasetMessage { get; set; }
 
         [ObservableProperty]
@@ -33,7 +34,10 @@ namespace CallerCallee.ViewModels
 
         [ObservableProperty]
         [NotifyCanExecuteChangedFor(nameof(RunSimulationCommand))]
+        [NotifyPropertyChangedFor(nameof(IsBusy))]
         public partial DefaultAzureCredential Credential { get; set; }
+
+        public bool IsBusy => RunSimulationCommand.IsRunning || AuthenticateCommand.IsRunning || ImportDatasetCommand.IsRunning || AutorunEverythingCommand.IsRunning;
 
         private readonly DatasetService datasetService = Ioc.Default.GetRequiredService<DatasetService>();
         private readonly CallerCalleeService callerCalleeService = Ioc.Default.GetRequiredService<CallerCalleeService>();
@@ -42,11 +46,9 @@ namespace CallerCallee.ViewModels
         public MainPageViewModel()
         {
             Autorun = settingsService.GetValue<bool>("autorun");
-
             if (Autorun)
             {
-                ImportDatasetCommand.Execute(this);
-                AuthenticateCommand.Execute(this);
+                AutorunEverythingCommand.Execute(null);
             }
         }
 
@@ -113,6 +115,17 @@ namespace CallerCallee.ViewModels
 
                 AppNotificationManager.Default.Show(notification);
             }
+        }
+
+        [RelayCommand(CanExecute = nameof(Autorun))]
+        public async Task AutorunEverything()
+        {
+            var path = settingsService.GetValue<string>("datasetpath");
+
+            await datasetService.LoadDatasetEntries(path);
+            DatasetCount = datasetService.Dataset == null ? 0 : datasetService.Dataset.Count;
+            await Authenticate();
+            await RunSimulation();
         }
     }
 }

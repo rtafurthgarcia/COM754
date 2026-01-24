@@ -8,9 +8,13 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:viewModels="using:CallerCallee.ViewModels"
     xmlns:models="using:CallerCallee.Models"
+    xmlns:converters="using:CommunityToolkit.WinUI.Converters"
     mc:Ignorable="d">
 
     <Page.Resources>
+        <!-- Converted -->
+        <converters:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter" />
+
         <!-- DataTemplate for folders -->
         <DataTemplate x:Key="CallTemplate" x:DataType="models:DatasetEntry">
             <TreeViewItem AutomationProperties.Name="{x:Bind Name}"
@@ -40,7 +44,7 @@
                 TurnOfConversationTemplate="{StaticResource TurnOfConversationTemplate}" />
     </Page.Resources>
 
-    <Grid x:Name="Root" HorizontalAlignment="Left" VerticalAlignment="Top" ColumnSpacing="8">
+    <Grid x:Name="Root" HorizontalAlignment="Stretch" VerticalAlignment="Top" ColumnSpacing="8">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"></RowDefinition>
             <RowDefinition Height="Auto"></RowDefinition>
@@ -54,8 +58,9 @@
         <CommandBar Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="1" DefaultLabelPosition="Right" 
                 VerticalContentAlignment="Top" HorizontalContentAlignment="Left"
                 IsOpen="True" Background="Transparent" IsSticky="True">
-            <AppBarButton Icon="OpenFile" Label="Open the datasource" 
-                    Click="OpenFileAppBarButton_Click"/>
+            <AppBarButton x:Name="ImportAppBarButton" Icon="OpenFile" Label="Open the datasource" 
+                    Command="{ x:Bind ViewModel.ImportDatasetCommand}" 
+                    CommandParameter="{ x:Bind XamlRoot.ContentIslandEnvironment.AppWindowId }"/>
             <AppBarButton Icon="Account" Label="Authenticate" 
                     Command="{ x:Bind ViewModel.AuthenticateCommand}"/>
             <AppBarButton Icon="Play" Label="Start the simulation"
@@ -65,25 +70,16 @@
             </CommandBar.Content>
         </CommandBar>
 
-        <!--<CheckBox Grid.Row="1" Grid.Column="2" Content="Autorun" IsChecked="{x:Bind ViewModel.Autorun, Mode=OneWay}">
-            <CheckBox.Behaviors>
-                <toolkit:EventToCommandBehavior
-                EventName="Clicked"
-                BindingContext="{Binding Path=BindingContext, Source={x:Reference MyButton}, x:DataType=Button}"
-                Command="{Binding Source={x:Reference Page}, Path=BindingContext.MyCustomCommand, x:DataType=ContentPage}" />
-            </CheckBox.Behaviors>
-        </CheckBox>-->
+        <CheckBox x:Name="AutorunCheckbox" Grid.Row="1" Grid.Column="2" Content="Autorun" Command="{x:Bind ViewModel.SetAutorunCommand}"
+                  IsChecked="{x:Bind ViewModel.Autorun, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
 
         <!-- TreeView bound to DataSource, using the ItemTemplateSelector -->
-        <ScrollView Grid.Row="2" Grid.Column="1">
+        <ScrollView Grid.Row="2" Grid.Column="0">
             <TreeView ItemsSource="{x:Bind ViewModel.DataSource }" ItemTemplateSelector="{StaticResource DatasetEntryTemplateSelector}"/>
         </ScrollView>
 
-        <ProgressBar x:Name="ProgressBar" Visibility="{x:Bind ViewModel.RunSimulationCommand.IsRunning, Mode=OneWay}" 
-                Grid.ColumnSpan="2" Grid.Row="3" Value="{x:Bind ViewModel.Progression, Mode=OneWay}" ShowPaused="False"/>
-
-        <ProgressBar x:Name="ProgressBarInfinite"
-            Grid.ColumnSpan="2" Grid.Row="3"  IsIndeterminate="True" ShowPaused="False" 
-                     Visibility="{x:Bind  ViewModel.AuthenticateCommand.IsRunning }"/>
+        <ProgressBar x:Name="ProgressBarInfinite" Grid.Column="0"
+                Grid.ColumnSpan="2" Grid.Row="3"  IsIndeterminate="True" ShowPaused="False" 
+                Visibility = "{x:Bind ViewModel.IsBusy, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}" />
     </Grid>
 </Page>

@@ -18,14 +18,5 @@ namespace CallerCallee
 
             DataContext = Ioc.Default.GetRequiredService<MainPageViewModel>();
         }
-        
-        private async void OpenFileAppBarButton_Click(object sender, RoutedEventArgs e)
-        {
-            
-            if (sender is Button button)
-            {
-                await ViewModel.ImportDatasetCommand.ExecuteAsync(button.XamlRoot.ContentIslandEnvironment.AppWindowId);
-            }
-        }
     }
 }
