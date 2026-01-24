@@ -5,8 +5,8 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.DependencyInjection;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI;
-using Microsoft.Windows.AppNotifications;
-using Microsoft.Windows.AppNotifications.Builder;
+//using Microsoft.Windows.AppNotifications;
+//using Microsoft.Windows.AppNotifications.Builder;
 using System;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -44,7 +44,7 @@ namespace CallerCallee.ViewModels
 
         public async Task ImportDatasetAsync(WindowId id)
         {
-            var file = await Ioc.Default.GetRequiredService<FilePickerService>().PickFileDialogAsync(id);
+            /*var file = await Ioc.Default.GetRequiredService<FilePickerService>().PickFileDialogAsync(id);
             LoadedDatasetMessage = file != null
                     ? "Picked: " + new FileInfo(file.Path).Name
                     : "No datasource selected.";
@@ -54,7 +54,7 @@ namespace CallerCallee.ViewModels
             }
 
             await datasetImportService.LoadDatasetEntries(file.Path);
-            DatasetCount = datasetImportService.Dataset == null ? 0 : datasetImportService.Dataset.Count;  
+            DatasetCount = datasetImportService.Dataset == null ? 0 : datasetImportService.Dataset.Count;  */
         }
         [RelayCommand(CanExecute = nameof(CanRunSimulation))]
         public async Task RunSimulation()
@@ -65,13 +65,13 @@ namespace CallerCallee.ViewModels
             } 
             catch (Exception e)
             {
-                AppNotification notification = new AppNotificationBuilder()
+                /*AppNotification notification = new AppNotificationBuilder()
                     .AddText("Simulation error")
                     .AddText(e.Message)
                     .SetAppLogoOverride(new Uri("ms-appx:///Assets/error-96.png"), AppNotificationImageCrop.Default)
                     .BuildNotification();
 
-                AppNotificationManager.Default.Show(notification);
+                AppNotificationManager.Default.Show(notification);*/
             }
         }
 
@@ -84,13 +84,13 @@ namespace CallerCallee.ViewModels
             }
             catch (Exception e)
             {
-                AppNotification notification = new AppNotificationBuilder()
+                /*AppNotification notification = new AppNotificationBuilder()
                     .AddText("Simulation error")
                     .AddText(e.Message)
                     .SetAppLogoOverride(new Uri("ms-appx:///Assets/error-96.png"), AppNotificationImageCrop.Default)
                     .BuildNotification();
 
-                AppNotificationManager.Default.Show(notification);
+                AppNotificationManager.Default.Show(notification);*/
             }
         }
     }

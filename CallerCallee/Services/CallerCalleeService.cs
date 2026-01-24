@@ -29,7 +29,7 @@ namespace CallerCallee.Services
         private static readonly string CS_ENDPOINT_NAME = "com754-cs-endpoint";
 
         private string? keyVaultName;
-        private KeyVaultSecret? csEndpoint;
+        //private KeyVaultSecret? csEndpoint;
 
         private CallClientOptions callClientOptions;
         private LocalOutgoingAudioStream micStream;

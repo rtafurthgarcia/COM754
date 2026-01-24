@@ -7,7 +7,7 @@ using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
-using Microsoft.Windows.Storage.Pickers;
+//using Microsoft.Windows.Storage.Pickers;
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -35,7 +35,7 @@ namespace CallerCallee
         {
             if (sender is Button button)
             {
-                await ViewModel.ImportDatasetAsync(button.XamlRoot.ContentIslandEnvironment.AppWindowId);
+                //await ViewModel.ImportDatasetAsync(button.XamlRoot.ContentIslandEnvironment.AppWindowId);
             }
         }
     }
