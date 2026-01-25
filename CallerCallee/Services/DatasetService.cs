@@ -1,4 +1,5 @@
 ﻿using CallerCallee.Models;
+using ObservableCollections;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -43,7 +44,7 @@ namespace CallerCallee.Services
             var dir = new DirectoryInfo(entry.FilePath);
             if (dir.Exists)
             {
-                entry.Children = new ObservableCollection<DatasetEntry>(
+                entry.Children = new ObservableQueue<DatasetEntry>(
                     [.. new DirectoryInfo(entry.FilePath)
                     .GetFiles("*.wav")
                     .Select(f => new DatasetEntry

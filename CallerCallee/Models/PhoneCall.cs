@@ -1,8 +1,11 @@
 ﻿using Azure.Communication.Calling.WindowsClient;
 using Azure.ResourceManager.Resources.Models;
 using CallerCallee.Helpers;
+using CommunityToolkit.Mvvm.Messaging;
+using Microsoft.UI.Xaml.Media.Animation;
 using NAudio.Wave;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -62,10 +65,12 @@ namespace CallerCallee.Models
             );
             callee.CallAgent.IncomingCallReceived += OnIncomingCallAsync;
 
-            await caller.CallAgent.StartCallAsync(
-                new[] { new UserCallIdentifier(callee.ParticipantCredentials.Token.Token) },
+            caller.Call = await caller.CallAgent.StartCallAsync(
+                [new UserCallIdentifier(callee.ParticipantCredentials.Token.Token)],
                 GetOutgoingCallOptions()
             );
+            caller.Call.StateChanged += OnCallStateChangedAsync;
+            WeakReferenceMessenger.Default.Send(new SimulationNotification.DatasetEntryWorkedOn(entry));
         }
         private async void OnIncomingCallAsync(object sender, IncomingCallReceivedEventArgs args)
         {
@@ -74,30 +79,31 @@ namespace CallerCallee.Models
             var acceptCallOptions = GetIncomingCallOptions();
 
             callee.Call = await incomingCall.AcceptAsync(acceptCallOptions);
-            caller.Call.StateChanged += OnIncomingCallStateChangedAsync;
+            callee.Call.StateChanged += OnCallStateChangedAsync;
         }
 
-        private void OnIncomingCallStateChangedAsync(object sender, PropertyChangedEventArgs args)
+        private void OnCallStateChangedAsync(object sender, PropertyChangedEventArgs args)
         {
             var call = sender as CommunicationCall;
             if (call != null)
             {
                 var state = call.State;
-                // Update the UI
                 switch (state)
                 {
-                    case CallState.Connected:
-                        {
-                            //call.
-                            //PlayAudioStream(call.);
-
-                            // will probably send back messages somehow
-                            break;
-                        }
                     case CallState.Disconnected:
                         {
-                            call.StateChanged -= OnIncomingCallStateChangedAsync;
+                            call.StateChanged -= OnCallStateChangedAsync;
                             call.Dispose();
+
+                            // Implies the call was interrupted
+                            if (entry.Children.Count > 0)
+                            {
+                                WeakReferenceMessenger.Default.Send(
+                                    new SimulationNotification.DatasetEntryFailed(
+                                        new Exception("Call interrupted unexpectedly")
+                                    )
+                                );
+                            }
 
                             break;
                         }
@@ -106,7 +112,7 @@ namespace CallerCallee.Models
             }
         }
 
-        private StartCallOptions GetOutgoingCallOptions()
+        private static StartCallOptions GetOutgoingCallOptions()
         {
             var outgoingAudioProperties = new RawOutgoingAudioStreamProperties()
             {
@@ -124,12 +130,23 @@ namespace CallerCallee.Models
             var outgoingAudioOptions = new OutgoingAudioOptions();
             var rawOutgoingAudioStream = new RawOutgoingAudioStream(outgoingAudioStreamOptions);
             outgoingAudioOptions.Stream = rawOutgoingAudioStream;
-            outgoingAudioOptions.Stream.StateChanged += (sender, args) => {
+            // we only want to start streaming when both are connected.
+            /*outgoingAudioOptions.Stream.StateChanged += (sender, args) => {
                 if (args.Stream.State.Equals(AudioStreamState.Started))
                 {
-                    PlayAudioStream(rawOutgoingAudioStream);
+                    while (caller.Turns.Count > 0)
+                    {
+                        var turn = caller.Turns.Dequeue();
+
+                        PlayAudioStream(ref rawOutgoingAudioStream, turn.FilePath);
+                    }
+
+                    if (callee.Turns.Count == 0)
+                    {
+                        caller.Call.HangUpAsync(new HangUpOptions() { ForEveryone = true }).Wait();
+                    }
                 }
-            };
+            };*/
             options.OutgoingAudioOptions = outgoingAudioOptions;
 
             return options;
@@ -153,21 +170,38 @@ namespace CallerCallee.Models
             var outgoingAudioOptions = new OutgoingAudioOptions();
             var rawOutgoingAudioStream = new RawOutgoingAudioStream(outgoingAudioStreamOptions);
             outgoingAudioOptions.Stream = rawOutgoingAudioStream;
-            outgoingAudioOptions.Stream.StateChanged += (sender, args) => {
-                if (args.Stream.State.Equals(AudioStreamState.Started))
-                {
-                    PlayAudioStream(rawOutgoingAudioStream);
-                }
-            };
+            outgoingAudioOptions.Stream.StateChanged += AudioStreamStateChanged;
             options.OutgoingAudioOptions = outgoingAudioOptions;
 
             return options;
         }
 
-        private unsafe void PlayAudioStream(RawOutgoingAudioStream stream)
+        private void AudioStreamStateChanged(object sender, AudioStreamStateChangedEventArgs args)
         {
-            // Example: WAV or MP3 file
-            var reader = new AudioFileReader("prompt.wav");
+            if (args.Stream.State.Equals(AudioStreamState.Started))
+            {
+                int counter = 0;
+                while (entry.Children.Count > 0)
+                {
+                    var turn = entry.Children.Dequeue();
+
+                    // To simulate a real conversation where each participant speak politely one after the other 
+                    var stream = (counter % 2 == 0 ? callee.Call.ActiveOutgoingAudioStream : caller.Call.ActiveOutgoingAudioStream) as RawOutgoingAudioStream;
+                    WeakReferenceMessenger.Default.Send(new SimulationNotification.DatasetEntryFinished(entry));
+                    PlayAudioStream(ref stream, turn);
+
+                    counter++;
+                }
+                WeakReferenceMessenger.Default.Send(new SimulationNotification.DatasetEntryFinished(entry));
+                callee.Call.HangUpAsync(new HangUpOptions() { ForEveryone = true }).Wait();
+            }
+        }
+
+        private unsafe void PlayAudioStream(ref RawOutgoingAudioStream stream, DatasetEntry turn)
+        {
+            WeakReferenceMessenger.Default.Send(new SimulationNotification.TurnBeingPlayed(new ParentChildDataset(entry, turn)));
+
+            var reader = new AudioFileReader(turn.FilePath);
 
             // Resample to match ACS stream format
             var targetFormat = new WaveFormat(
@@ -183,58 +217,55 @@ namespace CallerCallee.Models
 
             var bytesPerFrame = stream.ExpectedBufferSizeInBytes;
 
-            new Thread(() =>
+            var nextDeliverTime = DateTime.Now;
+            var managedBuffer = new byte[bytesPerFrame];
+
+            while (true)
             {
-                var nextDeliverTime = DateTime.Now;
-                var managedBuffer = new byte[bytesPerFrame];
+                int bytesRead = resampler.Read(managedBuffer, 0, managedBuffer.Length);
 
-                while (true)
+                // Loop audio or stop when finished
+                if (bytesRead == 0)
                 {
-                    int bytesRead = resampler.Read(managedBuffer, 0, managedBuffer.Length);
+                    reader.Position = 0;
+                    continue;
+                }
 
-                    // Loop audio or stop when finished
-                    if (bytesRead == 0)
+                var memoryBuffer = new MemoryBuffer((uint)bytesPerFrame);
+
+                using (var reference = memoryBuffer.CreateReference())
+                {
+
+                    ((IMemoryBufferByteAccess)reference)
+                        .GetBuffer(out byte* dataInBytes, out uint capacityInBytes);
+
+                    // Copy decoded PCM into the ACS buffer
+                    fixed (byte* src = managedBuffer)
                     {
-                        reader.Position = 0;
-                        continue;
-                    }
-
-                    var memoryBuffer = new MemoryBuffer((uint)bytesPerFrame);
-
-                    using (var reference = memoryBuffer.CreateReference())
-                    {
-
-                        ((IMemoryBufferByteAccess)reference)
-                            .GetBuffer(out byte* dataInBytes, out uint capacityInBytes);
-
-                        // Copy decoded PCM into the ACS buffer
-                        fixed (byte* src = managedBuffer)
-                        {
-                            Buffer.MemoryCopy(
-                                src,
-                                dataInBytes,
-                                capacityInBytes,
-                                (uint)bytesRead
-                            );
-                        }
-                    }
-
-                    var buffer = new RawAudioBuffer();
-                    buffer.Buffer = memoryBuffer;
-                    stream.SendRawAudioBufferAsync(buffer).Wait();
-
-                    // Maintain 20 ms cadence
-                    nextDeliverTime = nextDeliverTime.AddMilliseconds(20);
-                    var wait = nextDeliverTime - DateTime.Now;
-                    if (wait > TimeSpan.Zero)
-                    {
-                        Thread.Sleep(wait);
+                        Buffer.MemoryCopy(
+                            src,
+                            dataInBytes,
+                            capacityInBytes,
+                            (uint)bytesRead
+                        );
                     }
                 }
-            })
-            {
-                IsBackground = true
-            }.Start();
+
+                var buffer = new RawAudioBuffer
+                {
+                    Buffer = memoryBuffer
+                };
+                stream.SendRawAudioBufferAsync(buffer).Wait();
+
+                // Maintain 20 ms cadence
+                nextDeliverTime = nextDeliverTime.AddMilliseconds(20);
+                var wait = nextDeliverTime - DateTime.Now;
+                if (wait > TimeSpan.Zero)
+                {
+                    Thread.Sleep(wait);
+                }
+            }
+            
         }
     }
 }

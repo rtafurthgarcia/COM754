@@ -4,9 +4,11 @@ using CallerCallee.Services;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.DependencyInjection;
 using CommunityToolkit.Mvvm.Input;
+using CommunityToolkit.Mvvm.Messaging;
 using Microsoft.UI;
 using Microsoft.Windows.AppNotifications;
 using Microsoft.Windows.AppNotifications.Builder;
+using ObservableCollections;
 using System;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -17,6 +19,7 @@ namespace CallerCallee.ViewModels
     public partial class MainPageViewModel: ObservableObject
     {
         public ObservableCollection<DatasetEntry> DataSource { get; } = []; 
+        public ObservableDictionary<DatasetEntry, DatasetEntry> CurrentTurns { get; } = [];
 
         [ObservableProperty]
         [NotifyCanExecuteChangedFor(nameof(RunSimulationCommand))]
@@ -50,6 +53,13 @@ namespace CallerCallee.ViewModels
             {
                 AutorunEverythingCommand.Execute(null);
             }
+
+            WeakReferenceMessenger.Default.Register<SimulationNotification.DatasetEntryWorkedOn>(this, (r, m) => DataSource.Add(m.Value));
+            WeakReferenceMessenger.Default.Register<SimulationNotification.TurnBeingPlayed>(this, (r, m) => CurrentTurns[m.Value.Parent] = m.Value.Child);
+            WeakReferenceMessenger.Default.Register<SimulationNotification.DatasetEntryFinished>(this, (r, m) => {
+                DataSource.Remove(m.Value);
+                CurrentTurns.Remove(m.Value);
+            });
         }
 
         private bool CanRunSimulation()
@@ -89,7 +99,7 @@ namespace CallerCallee.ViewModels
             catch (Exception e)
             {
                 AppNotification notification = new AppNotificationBuilder()
-                    .AddText("Simulation error")
+                    .AddText("Simulation interrupted!")
                     .AddText(e.Message)
                     .SetAppLogoOverride(new Uri("ms-appx:///Assets/error-96.png"), AppNotificationImageCrop.Default)
                     .BuildNotification();
@@ -108,7 +118,7 @@ namespace CallerCallee.ViewModels
             catch (Exception e)
             {
                 AppNotification notification = new AppNotificationBuilder()
-                    .AddText("Simulation error")
+                    .AddText("Authentication failed")
                     .AddText(e.Message)
                     .SetAppLogoOverride(new Uri("ms-appx:///Assets/error-96.png"), AppNotificationImageCrop.Default)
                     .BuildNotification();
@@ -122,10 +132,23 @@ namespace CallerCallee.ViewModels
         {
             var path = settingsService.GetValue<string>("datasetpath");
 
-            await datasetService.LoadDatasetEntries(path);
-            DatasetCount = datasetService.Dataset == null ? 0 : datasetService.Dataset.Count;
-            await Authenticate();
-            await RunSimulation();
+            try
+            {
+                await datasetService.LoadDatasetEntries(path);
+                DatasetCount = datasetService.Dataset == null ? 0 : datasetService.Dataset.Count;
+                await Authenticate();
+                await RunSimulation();
+            }
+            catch (Exception e)
+            {
+                AppNotification notification = new AppNotificationBuilder()
+                    .AddText("Autorun interrupted")
+                    .AddText(e.Message)
+                    .SetAppLogoOverride(new Uri("ms-appx:///Assets/error-96.png"), AppNotificationImageCrop.Default)
+                    .BuildNotification();
+
+                AppNotificationManager.Default.Show(notification);
+            }
         }
     }
 }

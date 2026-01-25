@@ -7,6 +7,7 @@ using Azure.Security.KeyVault.Secrets;
 using CallerCallee.Helpers;
 using CallerCallee.Models;
 using CommunityToolkit.Mvvm.DependencyInjection;
+using CommunityToolkit.Mvvm.Messaging;
 using NAudio.Wave;
 using System;
 using System.Collections.Generic;
@@ -30,7 +31,6 @@ namespace CallerCallee.Services
         // A padding interval to make the output more orderly.
         private int padding;
         private int semaphoreCount;
-
         public async Task<DefaultAzureCredential> Authenticate() {
             var credential = new DefaultAzureCredential();
 
@@ -63,7 +63,7 @@ namespace CallerCallee.Services
         public async Task StartSimulation(DefaultAzureCredential credential)
         {
             ArgumentNullException.ThrowIfNull(credential);
-            var semaphore = new SemaphoreSlim(4); // Limit to 4 concurrent tasks
+            var semaphore = new SemaphoreSlim(0, 4); // Limit to 4 concurrent tasks
             var dataset = Ioc.Default.GetRequiredService<DatasetService>().Dataset;
             var ongoingPhoneCalls = new Task[dataset.Count];
             int counter = 0;
@@ -72,19 +72,33 @@ namespace CallerCallee.Services
             {
                 ongoingPhoneCalls[counter] = Task.Run(async () =>
                 {
-                    semaphore.Wait();
+                    DatasetEntry entry = null;
+                    await semaphore.WaitAsync();
                     try
                     {
                         Interlocked.Add(ref padding, 100);
 
-                        dataset.TryDequeue(out DatasetEntry entry);
+                        if (dataset.TryDequeue(out entry))
+                        {
+                            var callerIdentity = await communicationIdentity.CreateUserAndTokenAsync(scopes: [CommunicationTokenScope.VoIP]);
+                            var calleeIdentity = await communicationIdentity.CreateUserAndTokenAsync(scopes: [CommunicationTokenScope.VoIPJoin]);
 
-                        var callerIdentity = await communicationIdentity.CreateUserAndTokenAsync(scopes: [CommunicationTokenScope.VoIP]);
-                        var calleeIdentity = await communicationIdentity.CreateUserAndTokenAsync(scopes: [CommunicationTokenScope.VoIPJoin]);
-
-                        var phoneCall = new PhoneCall(callerIdentity.Value.AccessToken.Token, calleeIdentity.Value.AccessToken.Token, entry);
-                        await phoneCall.DialUp();
-                        counter += 1;
+                            var phoneCall = new PhoneCall(callerIdentity.Value.AccessToken.Token, calleeIdentity.Value.AccessToken.Token, entry);
+                            await phoneCall.DialUp();
+                            counter += 1;
+                            entry = null;
+                        }
+                    }
+                    catch (Exception ex) 
+                    {
+                        WeakReferenceMessenger.Default.Send(
+                            new SimulationNotification.DatasetEntryFailed(
+                                new Exception(ex.Message, ex.InnerException)
+                                {
+                                    Source = entry is null ? ex.Source : entry.Name
+                                }
+                            )
+                        );
                     }
                     finally
                     {
@@ -93,7 +107,7 @@ namespace CallerCallee.Services
                 });
             }
 
-            semaphore.Release();
+            //semaphore.Release();
             await Task.WhenAll(ongoingPhoneCalls);
         }
     }

@@ -1,5 +1,6 @@
 ﻿using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using ObservableCollections;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -26,8 +27,10 @@ namespace CallerCallee.Models
         public DatasetEntryKind Kind { get; set; }
         public string FilePath { get; set; }
         public DisplayType Type { get; set; }
-        public ObservableCollection<DatasetEntry> Children { get; set; }
+        public ObservableQueue<DatasetEntry> Children { get; set; }
     }
+
+    public record ParentChildDataset(DatasetEntry Parent, DatasetEntry Child);
 
     public partial class DatasetEntryTemplateSelector : DataTemplateSelector
     {
