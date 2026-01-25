@@ -1,8 +1,9 @@
 ﻿using Microsoft.UI.Dispatching;
-using Windows.Media.Audio;
-using Windows.Storage;
 using System;
 using System.Threading.Tasks;
+using Windows.Foundation;
+using Windows.Media.Audio;
+using Windows.Storage;
 
 namespace CallerCallee.Services
 {
@@ -10,6 +11,7 @@ namespace CallerCallee.Services
     {
         private readonly DispatcherQueue dispatcher;
         private AudioGraph graph;
+        private AudioFrameOutputNode frameNode;
 
         public AudioGraphService(DispatcherQueue dispatcher)
         {
@@ -103,5 +105,29 @@ namespace CallerCallee.Services
 
             return await tcs.Task;
         }
+
+        public async Task PlayFileAsync(StorageFile file)
+        {
+            await EnqueueAsync(() =>
+            {
+                var fileInputNode = graph.CreateFileInputNodeAsync(file);
+                return Task.FromResult(fileInputNode);
+            });
+        }
+
+        public void AttachQuantumHandler(TypedEventHandler<AudioGraph, object> handler)
+        {
+            graph.QuantumStarted += handler;
+        }
+
+        public async Task<AudioFrameOutputNode> CreateFrameOutputNodeAsync()
+        {
+            return await EnqueueAsync(() =>
+            {
+                frameNode = graph.CreateFrameOutputNode();
+                return Task.FromResult(frameNode);
+            });
+        }
+
     }
 }

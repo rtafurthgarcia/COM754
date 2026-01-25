@@ -2,11 +2,14 @@
 using Azure.Communication.Calling.WindowsClient;
 using Azure.Communication.Identity;
 using CallerCallee.Helpers;
+using CallerCallee.Services;
+using CommunityToolkit.Mvvm.DependencyInjection;
 using CommunityToolkit.Mvvm.Messaging;
 using NAudio.Wave;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.Metrics;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Windows.Foundation;
@@ -41,6 +44,7 @@ namespace CallerCallee.Models
         };
 
         private AudioGraph audioGraph;
+        private AudioGraphAcsBridge bridge;
 
         public PhoneCall(CommunicationUserIdentifierAndToken callerIdAndToken, CommunicationUserIdentifierAndToken calleeIdAndToken, DatasetEntry entry)
         {
@@ -59,7 +63,8 @@ namespace CallerCallee.Models
             audioGraph = result.Graph;
         }
 
-        public async Task DialUp() {
+        public async Task DialUp()
+        {
             var callerTokenCredential = new CallTokenCredential(caller.IdentifierAndToken.AccessToken.Token, callTokenRefreshOptions);
             var calleeTokenCredential = new CallTokenCredential(callee.IdentifierAndToken.AccessToken.Token, callTokenRefreshOptions);
 
@@ -74,7 +79,7 @@ namespace CallerCallee.Models
 
             callee.CallClient = new(callClientOptions);
             callee.CallAgent = await callee.CallClient.CreateCallAgentAsync(
-                calleeTokenCredential, 
+                calleeTokenCredential,
                 new CallAgentOptions()
                 {
                     DisplayName = $"{Environment.MachineName}/COM754-Callee",
@@ -82,13 +87,20 @@ namespace CallerCallee.Models
             );
             callee.CallAgent.IncomingCallReceived += OnIncomingCallAsync;
 
-            //string token = callee.ParticipantCredentials.Token.Token;
-
             caller.Call = await caller.CallAgent.StartCallAsync(
-                new[] {new UserCallIdentifier(callee.IdentifierAndToken.User.Id)},
+                new[] { new UserCallIdentifier(callee.IdentifierAndToken.User.Id) },
                 GetOutgoingCallOptions()
             );
             caller.Call.StateChanged += OnCallStateChangedAsync;
+
+            var frameNode = await Ioc.Default.GetRequiredService<AudioGraphService>().CreateFrameOutputNodeAsync();
+            bridge = new AudioGraphAcsBridge(frameNode);
+            Ioc.Default.GetRequiredService<AudioGraphService>().AttachQuantumHandler(bridge.OnQuantumStarted);
+
+            await bridge.StartStreamingAsync(
+                (RawOutgoingAudioStream)caller.Call.ActiveOutgoingAudioStream,
+                CancellationToken.None);
+
             WeakReferenceMessenger.Default.Send(new SimulationNotification.DatasetEntryWorkedOn(entry));
         }
         private async void OnIncomingCallAsync(object sender, IncomingCallReceivedEventArgs args)
@@ -181,7 +193,7 @@ namespace CallerCallee.Models
         private void AudioStreamStateChanged(object sender, AudioStreamStateChangedEventArgs args)
         {
             if (args.Stream.State.Equals(AudioStreamState.Started))
-            {                
+            {
                 audioGraph.QuantumStarted += ConversationStarted;
                 audioGraph.Start();
             }
@@ -189,62 +201,26 @@ namespace CallerCallee.Models
 
         private async void ConversationStarted(AudioGraph sender, object args)
         {
-            int counter = 0;
-
             while (entry.Children.Count > 0)
             {
                 var turn = entry.Children.Dequeue();
-
                 var file = await StorageFile.GetFileFromPathAsync(turn.FilePath);
-                CreateAudioFileInputNodeResult result = await audioGraph.CreateFileInputNodeAsync(file);
 
-                if (result.Status != AudioFileNodeCreationStatus.Success)
-                {
-                    throw new Exception("Failed to create the Audiograph object. ", result.ExtendedError);
-                }
-               
-                WeakReferenceMessenger.Default.Send(new SimulationNotification.TurnBeingPlayed(new ParentChildDataset(entry, turn)));
-                var audioThread = new Thread(ProcessFrame(counter));
-                audioThread.Start();
-                audioThread.Join();
+                var node = await Ioc.Default.GetRequiredService<AudioGraphService>().CreateFileNodeAsync(file);
 
+                WeakReferenceMessenger.Default.Send(
+                    new SimulationNotification.TurnBeingPlayed(
+                        new ParentChildDataset(entry, turn)));
+
+                node.Start();
+                await Task.Delay(node.Duration);
+                node.Stop();
             }
 
-            WeakReferenceMessenger.Default.Send(new SimulationNotification.DatasetEntryFinished(entry));
-            caller.Call.HangUpAsync(new HangUpOptions() { ForEveryone = true }).Wait();
-        }
+            //WeakReferenceMessenger.Default.Send(
+            //    new SimulationNotification.DatasetEntryFinished(entry));
 
-        private unsafe ParameterizedThreadStart ProcessFrame(int counter)
-        {
-            // To simulate a real conversation where each participant speak politely one after the other 
-            var stream = (counter % 2 == 0 ? callee.Call.ActiveOutgoingAudioStream : caller.Call.ActiveOutgoingAudioStream) as RawOutgoingAudioStream;
-            var frame = audioGraph.CreateFrameOutputNode().GetFrame();
-
-            var properties = stream.Properties;
-            RawAudioBuffer buffer;
-
-            var nextDeliverTime = DateTime.Now;
-            while (true)
-            {
-                var memoryBuffer = new MemoryBuffer((uint)stream.ExpectedBufferSizeInBytes);
-                using (var reference = memoryBuffer.CreateReference())
-                {
-                    byte* dataInBytes;
-                    uint capacityInBytes;
-                    float* dataInFloat;
-                    ((IMemoryBufferByteAccess)reference).GetBuffer(out dataInBytes, out capacityInBytes);
-                    dataInFloat = (float*)dataInBytes;
-                }
-                nextDeliverTime = nextDeliverTime.AddMilliseconds(20);
-                buffer = new RawAudioBuffer();
-                buffer.Buffer = memoryBuffer;
-                stream.SendRawAudioBufferAsync(buffer).Wait();
-                var wait = nextDeliverTime - DateTime.Now;
-                if (wait > TimeSpan.Zero)
-                {
-                    Thread.Sleep(wait);
-                }
-            }
+            //await caller.Call.HangUpAsync(new HangUpOptions { ForEveryone = true });
         }
     }
 }
