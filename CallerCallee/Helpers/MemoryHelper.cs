@@ -1,18 +1,43 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Runtime.InteropServices;
-using System.Runtime.InteropServices.Marshalling;
-using System.Text;
-using System.Threading.Tasks;
+using Windows.Foundation;
+using Windows.Storage.Streams;
 
 namespace CallerCallee.Helpers
 {
-    [GeneratedComInterface]
+    [ComImport]
     [Guid("5B0D3235-4DBA-4D44-865E-8F1D0E4FD04D")]
     [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    unsafe partial interface IMemoryBufferByteAccess
+    unsafe interface IMemoryBufferByteAccess
     {
         void GetBuffer(out byte* buffer, out uint capacity);
+    }
+    [ComImport]
+    [Guid("905A0FEF-BC53-11DF-8C49-001E4FC686DA")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    unsafe interface IBufferByteAccess
+    {
+        void Buffer(out byte* buffer);
+    }
+    internal static class BufferExtensions
+    {
+        // For accessing MemoryBuffer
+        public static unsafe byte* GetArrayBuffer(IMemoryBuffer memoryBuffer)
+        {
+            IMemoryBufferReference memoryBufferReference = memoryBuffer.CreateReference();
+            var memoryBufferByteAccess = memoryBufferReference as IMemoryBufferByteAccess;
+            memoryBufferByteAccess.GetBuffer(out byte* arrayBuffer, out uint arrayBufferCapacity);
+            GC.AddMemoryPressure(arrayBufferCapacity);
+            return arrayBuffer;
+        }
+        // For accessing MediaStreamSample
+        public static unsafe byte* GetArrayBuffer(IBuffer buffer)
+        {
+            var bufferByteAccess = buffer as IBufferByteAccess;
+            bufferByteAccess.Buffer(out byte* arrayBuffer);
+            uint arrayBufferCapacity = buffer.Capacity;
+            GC.AddMemoryPressure(arrayBufferCapacity);
+            return arrayBuffer;
+        }
     }
 }

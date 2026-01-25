@@ -1,23 +1,24 @@
-﻿using Azure.Communication.Calling.WindowsClient;
-using Azure.ResourceManager.Resources.Models;
+﻿using Azure.Communication;
+using Azure.Communication.Calling.WindowsClient;
+using Azure.Communication.Identity;
 using CallerCallee.Helpers;
 using CommunityToolkit.Mvvm.Messaging;
-using Microsoft.UI.Xaml.Media.Animation;
 using NAudio.Wave;
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
+using System.Diagnostics.Metrics;
 using System.Threading;
 using System.Threading.Tasks;
 using Windows.Foundation;
+using Windows.Media;
+using Windows.Media.Audio;
+using Windows.Storage;
 
 namespace CallerCallee.Models
 {
     public class PhoneCall
     {
-        private record CallContainer(CallTokenCredential ParticipantCredentials)
+        private record CallContainer(CommunicationUserIdentifierAndToken IdentifierAndToken)
         {
             public CallClient CallClient;
             public CallAgent CallAgent;
@@ -39,17 +40,32 @@ namespace CallerCallee.Models
             }
         };
 
-        public PhoneCall(string callerToken, string calleeToken, DatasetEntry entry)
+        private AudioGraph audioGraph;
+
+        public PhoneCall(CommunicationUserIdentifierAndToken callerIdAndToken, CommunicationUserIdentifierAndToken calleeIdAndToken, DatasetEntry entry)
         {
-            caller = new CallContainer(new CallTokenCredential(callerToken, callTokenRefreshOptions));
-            callee = new CallContainer(new CallTokenCredential(calleeToken, callTokenRefreshOptions));
+            caller = new CallContainer(callerIdAndToken);
+            callee = new CallContainer(calleeIdAndToken);
             this.entry = entry;
+
+            var settings = new AudioGraphSettings(Windows.Media.Render.AudioRenderCategory.Media);
+
+            CreateAudioGraphResult result = AudioGraph.CreateAsync(settings).AsTask().Result;
+            if (result.Status != AudioGraphCreationStatus.Success)
+            {
+                throw new Exception("Failed to create the Audiograph object. ", result.ExtendedError);
+            }
+
+            audioGraph = result.Graph;
         }
 
         public async Task DialUp() {
+            var callerTokenCredential = new CallTokenCredential(caller.IdentifierAndToken.AccessToken.Token, callTokenRefreshOptions);
+            var calleeTokenCredential = new CallTokenCredential(callee.IdentifierAndToken.AccessToken.Token, callTokenRefreshOptions);
+
             caller.CallClient = new(callClientOptions);
-            caller.CallAgent = await caller.CallClient?.CreateCallAgentAsync(
-                caller.ParticipantCredentials,
+            caller.CallAgent = await caller.CallClient.CreateCallAgentAsync(
+                callerTokenCredential,
                 new CallAgentOptions()
                 {
                     DisplayName = $"{Environment.MachineName}/COM754-Caller",
@@ -57,16 +73,19 @@ namespace CallerCallee.Models
             );
 
             callee.CallClient = new(callClientOptions);
-            callee.CallAgent = await callee?.CallClient?.CreateCallAgentAsync(
-                callee.ParticipantCredentials, new CallAgentOptions()
+            callee.CallAgent = await callee.CallClient.CreateCallAgentAsync(
+                calleeTokenCredential, 
+                new CallAgentOptions()
                 {
-                    DisplayName = $"{Environment.MachineName}/COM754-Caller",
+                    DisplayName = $"{Environment.MachineName}/COM754-Callee",
                 }
             );
             callee.CallAgent.IncomingCallReceived += OnIncomingCallAsync;
 
+            //string token = callee.ParticipantCredentials.Token.Token;
+
             caller.Call = await caller.CallAgent.StartCallAsync(
-                [new UserCallIdentifier(callee.ParticipantCredentials.Token.Token)],
+                new[] {new UserCallIdentifier(callee.IdentifierAndToken.User.Id)},
                 GetOutgoingCallOptions()
             );
             caller.Call.StateChanged += OnCallStateChangedAsync;
@@ -130,23 +149,6 @@ namespace CallerCallee.Models
             var outgoingAudioOptions = new OutgoingAudioOptions();
             var rawOutgoingAudioStream = new RawOutgoingAudioStream(outgoingAudioStreamOptions);
             outgoingAudioOptions.Stream = rawOutgoingAudioStream;
-            // we only want to start streaming when both are connected.
-            /*outgoingAudioOptions.Stream.StateChanged += (sender, args) => {
-                if (args.Stream.State.Equals(AudioStreamState.Started))
-                {
-                    while (caller.Turns.Count > 0)
-                    {
-                        var turn = caller.Turns.Dequeue();
-
-                        PlayAudioStream(ref rawOutgoingAudioStream, turn.FilePath);
-                    }
-
-                    if (callee.Turns.Count == 0)
-                    {
-                        caller.Call.HangUpAsync(new HangUpOptions() { ForEveryone = true }).Wait();
-                    }
-                }
-            };*/
             options.OutgoingAudioOptions = outgoingAudioOptions;
 
             return options;
@@ -179,93 +181,70 @@ namespace CallerCallee.Models
         private void AudioStreamStateChanged(object sender, AudioStreamStateChangedEventArgs args)
         {
             if (args.Stream.State.Equals(AudioStreamState.Started))
-            {
-                int counter = 0;
-                while (entry.Children.Count > 0)
-                {
-                    var turn = entry.Children.Dequeue();
-
-                    // To simulate a real conversation where each participant speak politely one after the other 
-                    var stream = (counter % 2 == 0 ? callee.Call.ActiveOutgoingAudioStream : caller.Call.ActiveOutgoingAudioStream) as RawOutgoingAudioStream;
-                    WeakReferenceMessenger.Default.Send(new SimulationNotification.DatasetEntryFinished(entry));
-                    PlayAudioStream(ref stream, turn);
-
-                    counter++;
-                }
-                WeakReferenceMessenger.Default.Send(new SimulationNotification.DatasetEntryFinished(entry));
-                callee.Call.HangUpAsync(new HangUpOptions() { ForEveryone = true }).Wait();
+            {                
+                audioGraph.QuantumStarted += ConversationStarted;
+                audioGraph.Start();
             }
         }
 
-        private unsafe void PlayAudioStream(ref RawOutgoingAudioStream stream, DatasetEntry turn)
+        private async void ConversationStarted(AudioGraph sender, object args)
         {
-            WeakReferenceMessenger.Default.Send(new SimulationNotification.TurnBeingPlayed(new ParentChildDataset(entry, turn)));
+            int counter = 0;
 
-            var reader = new AudioFileReader(turn.FilePath);
-
-            // Resample to match ACS stream format
-            var targetFormat = new WaveFormat(
-                48000,   // sample rate
-                16,      // bits
-                1        // channels (change to 2 if stereo)
-            );
-
-            var resampler = new MediaFoundationResampler(reader, targetFormat)
+            while (entry.Children.Count > 0)
             {
-                ResamplerQuality = 60
-            };
+                var turn = entry.Children.Dequeue();
 
-            var bytesPerFrame = stream.ExpectedBufferSizeInBytes;
+                var file = await StorageFile.GetFileFromPathAsync(turn.FilePath);
+                CreateAudioFileInputNodeResult result = await audioGraph.CreateFileInputNodeAsync(file);
+
+                if (result.Status != AudioFileNodeCreationStatus.Success)
+                {
+                    throw new Exception("Failed to create the Audiograph object. ", result.ExtendedError);
+                }
+               
+                WeakReferenceMessenger.Default.Send(new SimulationNotification.TurnBeingPlayed(new ParentChildDataset(entry, turn)));
+                var audioThread = new Thread(ProcessFrame(counter));
+                audioThread.Start();
+                audioThread.Join();
+
+            }
+
+            WeakReferenceMessenger.Default.Send(new SimulationNotification.DatasetEntryFinished(entry));
+            caller.Call.HangUpAsync(new HangUpOptions() { ForEveryone = true }).Wait();
+        }
+
+        private unsafe ParameterizedThreadStart ProcessFrame(int counter)
+        {
+            // To simulate a real conversation where each participant speak politely one after the other 
+            var stream = (counter % 2 == 0 ? callee.Call.ActiveOutgoingAudioStream : caller.Call.ActiveOutgoingAudioStream) as RawOutgoingAudioStream;
+            var frame = audioGraph.CreateFrameOutputNode().GetFrame();
+
+            var properties = stream.Properties;
+            RawAudioBuffer buffer;
 
             var nextDeliverTime = DateTime.Now;
-            var managedBuffer = new byte[bytesPerFrame];
-
             while (true)
             {
-                int bytesRead = resampler.Read(managedBuffer, 0, managedBuffer.Length);
-
-                // Loop audio or stop when finished
-                if (bytesRead == 0)
-                {
-                    reader.Position = 0;
-                    continue;
-                }
-
-                var memoryBuffer = new MemoryBuffer((uint)bytesPerFrame);
-
+                var memoryBuffer = new MemoryBuffer((uint)stream.ExpectedBufferSizeInBytes);
                 using (var reference = memoryBuffer.CreateReference())
                 {
-
-                    ((IMemoryBufferByteAccess)reference)
-                        .GetBuffer(out byte* dataInBytes, out uint capacityInBytes);
-
-                    // Copy decoded PCM into the ACS buffer
-                    fixed (byte* src = managedBuffer)
-                    {
-                        Buffer.MemoryCopy(
-                            src,
-                            dataInBytes,
-                            capacityInBytes,
-                            (uint)bytesRead
-                        );
-                    }
+                    byte* dataInBytes;
+                    uint capacityInBytes;
+                    float* dataInFloat;
+                    ((IMemoryBufferByteAccess)reference).GetBuffer(out dataInBytes, out capacityInBytes);
+                    dataInFloat = (float*)dataInBytes;
                 }
-
-                var buffer = new RawAudioBuffer
-                {
-                    Buffer = memoryBuffer
-                };
-                stream.SendRawAudioBufferAsync(buffer).Wait();
-
-                // Maintain 20 ms cadence
                 nextDeliverTime = nextDeliverTime.AddMilliseconds(20);
+                buffer = new RawAudioBuffer();
+                buffer.Buffer = memoryBuffer;
+                stream.SendRawAudioBufferAsync(buffer).Wait();
                 var wait = nextDeliverTime - DateTime.Now;
                 if (wait > TimeSpan.Zero)
                 {
                     Thread.Sleep(wait);
                 }
             }
-            
         }
     }
 }

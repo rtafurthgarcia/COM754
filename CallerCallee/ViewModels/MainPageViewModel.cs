@@ -57,8 +57,13 @@ namespace CallerCallee.ViewModels
             WeakReferenceMessenger.Default.Register<SimulationNotification.DatasetEntryWorkedOn>(this, (r, m) => DataSource.Add(m.Value));
             WeakReferenceMessenger.Default.Register<SimulationNotification.TurnBeingPlayed>(this, (r, m) => CurrentTurns[m.Value.Parent] = m.Value.Child);
             WeakReferenceMessenger.Default.Register<SimulationNotification.DatasetEntryFinished>(this, (r, m) => {
-                DataSource.Remove(m.Value);
-                CurrentTurns.Remove(m.Value);
+                if (DataSource.Contains(m.Value)) {
+                    DataSource.Remove(m.Value);
+                }
+                if (CurrentTurns.ContainsKey(m.Value))
+                {
+                    CurrentTurns.Remove(m.Value);
+                }
             });
         }
 

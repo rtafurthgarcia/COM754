@@ -2,6 +2,7 @@
 using CallerCallee.ViewModels;
 using CommunityToolkit.Mvvm.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 
 // To learn more about WinUI, the WinUI project structure,
@@ -29,8 +30,13 @@ namespace CallerCallee
         /// Invoked when the application is launched.
         /// </summary>
         /// <param name="args">Details about the launch request and process.</param>
-        protected override void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
+        protected override async void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
         {
+            var dispatcher = DispatcherQueue.GetForCurrentThread();
+
+            var audioGraphService = new AudioGraphService(dispatcher);
+            await audioGraphService.InitializeAsync();
+
             // Register services
             Ioc.Default.ConfigureServices(
                 new ServiceCollection()
@@ -38,6 +44,7 @@ namespace CallerCallee
                 .AddSingleton<DatasetService>()
                 .AddSingleton<CallerCalleeService>()
                 .AddSingleton<SettingsService>()
+                .AddSingleton(audioGraphService)
 
                 // models
                 .AddTransient<MainPageViewModel>()

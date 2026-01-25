@@ -27,11 +27,8 @@ namespace CallerCallee.Services
         private KeyVaultSecret csEndpoint;
 
         CommunicationIdentityClient communicationIdentity;
-
-        // A padding interval to make the output more orderly.
-        private int padding;
-        private int semaphoreCount;
-        public async Task<DefaultAzureCredential> Authenticate() {
+        public async Task<DefaultAzureCredential> Authenticate()
+        {
             var credential = new DefaultAzureCredential();
 
             keyVaultName = await GetKeyVaultName(credential);
@@ -63,33 +60,33 @@ namespace CallerCallee.Services
         public async Task StartSimulation(DefaultAzureCredential credential)
         {
             ArgumentNullException.ThrowIfNull(credential);
-            var semaphore = new SemaphoreSlim(0, 4); // Limit to 4 concurrent tasks
+            var semaphore = new SemaphoreSlim(1, 1); // Limit to 4 concurrent tasks
             var dataset = Ioc.Default.GetRequiredService<DatasetService>().Dataset;
             var ongoingPhoneCalls = new Task[dataset.Count];
             int counter = 0;
-            
+
             while (!dataset.IsEmpty)
             {
+                var callerIdandToken = await communicationIdentity.CreateUserAndTokenAsync(scopes: [CommunicationTokenScope.VoIP]);
+                var calleeIdAndToken = await communicationIdentity.CreateUserAndTokenAsync(scopes: [CommunicationTokenScope.VoIPJoin]);
+
                 ongoingPhoneCalls[counter] = Task.Run(async () =>
                 {
                     DatasetEntry entry = null;
+                    counter += 1;
+
                     await semaphore.WaitAsync();
                     try
                     {
-                        Interlocked.Add(ref padding, 100);
-
                         if (dataset.TryDequeue(out entry))
                         {
-                            var callerIdentity = await communicationIdentity.CreateUserAndTokenAsync(scopes: [CommunicationTokenScope.VoIP]);
-                            var calleeIdentity = await communicationIdentity.CreateUserAndTokenAsync(scopes: [CommunicationTokenScope.VoIPJoin]);
-
-                            var phoneCall = new PhoneCall(callerIdentity.Value.AccessToken.Token, calleeIdentity.Value.AccessToken.Token, entry);
+                            var phoneCall = new PhoneCall(callerIdandToken, calleeIdAndToken, entry);
                             await phoneCall.DialUp();
-                            counter += 1;
+                            //Thread.Sleep(350000);
                             entry = null;
                         }
                     }
-                    catch (Exception ex) 
+                    catch (Exception ex)
                     {
                         WeakReferenceMessenger.Default.Send(
                             new SimulationNotification.DatasetEntryFailed(
@@ -102,13 +99,13 @@ namespace CallerCallee.Services
                     }
                     finally
                     {
-                        semaphoreCount = semaphore.Release();
+                        counter -= 1;
+                        semaphore.Release();
                     }
                 });
-            }
 
-            //semaphore.Release();
-            await Task.WhenAll(ongoingPhoneCalls);
+                Task.WaitAll(ongoingPhoneCalls);
+            }
         }
     }
 }
