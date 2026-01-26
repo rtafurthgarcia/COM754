@@ -19,7 +19,7 @@ namespace CallerCallee.Helpers
     {
         void Buffer(out byte* buffer);
     }
-    internal static class BufferExtensions
+    public static class BufferExtensions
     {
         // For accessing MemoryBuffer
         public static unsafe byte* GetArrayBuffer(IMemoryBuffer memoryBuffer)

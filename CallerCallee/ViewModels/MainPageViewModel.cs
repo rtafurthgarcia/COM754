@@ -99,7 +99,7 @@ namespace CallerCallee.ViewModels
         {
             try
             {
-                await callerCalleeService.StartSimulation(Credential, 4);
+                await callerCalleeService.StartSimulation(Credential, 2);
             } 
             catch (Exception e)
             {

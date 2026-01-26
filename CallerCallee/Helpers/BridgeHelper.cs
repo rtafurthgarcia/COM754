@@ -1,114 +1,173 @@
 ﻿using Azure.Communication.Calling.WindowsClient;
 using System;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.Linq;
-using System.Runtime.InteropServices;
-using System.Security.Cryptography.Xml;
-using System.Text;
 using System.Threading;
-using System.Threading.Channels;
-using System.Threading.Tasks;
 using Windows.Foundation;
 using Windows.Media;
 using Windows.Media.Audio;
+using Windows.Storage.Streams;
+using System.Runtime.InteropServices;
+using Windows.Media.Audio;
+using Windows.Media;
+
 
 namespace CallerCallee.Helpers
 {
     public sealed class AudioGraphAcsBridge
     {
-        private readonly Channel<byte[]> pcmChannel =
-            Channel.CreateBounded<byte[]>(4);
-
         private AudioFrameOutputNode frameNode;
+        private AudioFileInputNode fileNode;
         private RawOutgoingAudioStream outgoingStream;
+
+        private MemoryBuffer scratchBuffer;
+
+        private Thread pumpThread;
+
+        private const int SampleRate = 48000;
+        private const int Channels = 1;
+        private const int BytesPerSample = 2; // PCM16
+        private const int FrameMs = 20;
+        private const int BytesPerFrame =
+            SampleRate * FrameMs / 1000 * BytesPerSample * Channels;
+
         public bool IsPlaying { get; private set; }
-        public event Action TurnFinished;
+        public event EventHandler FileEnded;
 
-        public AudioGraphAcsBridge(AudioFrameOutputNode frameNode)
-        {
-            this.frameNode = frameNode;
-        }
-        public void AttachOutgoingStream(RawOutgoingAudioStream stream)
-        {
+        public AudioGraphAcsBridge(RawOutgoingAudioStream stream) { 
             outgoingStream = stream;
+            scratchBuffer = new MemoryBuffer(BytesPerFrame);
         }
 
-        public void StartTurn()
+        public void StartPlayingAudio(AudioFrameOutputNode frameNode, AudioFileInputNode fileNode)
         {
-            //Debug.WriteLine($"{}")
+            // Initialize the Frame Input Node in the stopped state
             IsPlaying = true;
+
+            this.frameNode = frameNode;
+            this.fileNode = fileNode;
+            this.fileNode.FileCompleted += OnFileCompleted;
+
+            fileNode.AddOutgoingConnection(this.frameNode);
+
+            pumpThread = new Thread(PumpLoop)
+            {
+                IsBackground = true,
+                Priority = ThreadPriority.Highest
+            };
+            pumpThread.Start();
         }
 
-        public void EndTurn()
+        private void OnFileCompleted(AudioFileInputNode sender, object args)
         {
             IsPlaying = false;
-            TurnFinished?.Invoke();
+            pumpThread?.Join();
+
+            frameNode?.Dispose();
+            fileNode?.Dispose();
         }
 
-        private unsafe byte[] ConvertFrameToPcm16(AudioFrame frame)
+        private unsafe void PumpLoop()
         {
-            using var buffer = frame.LockBuffer(AudioBufferAccessMode.Read);
-            using var reference = buffer.CreateReference();
+            DateTime nextTick = DateTime.UtcNow;
 
-            byte* data;
-            uint capacity;
-            ((IMemoryBufferByteAccess)reference).GetBuffer(out data, out capacity);
-
-            // AudioGraph outputs float32 samples
-            float* floatSamples = (float*)data;
-
-            int sampleCount = (int)(capacity / sizeof(float));
-            var pcm = new byte[sampleCount * 2];
-
-            for (int i = 0; i < sampleCount; i++)
+            while (IsPlaying)
             {
-                float sample = Math.Clamp(floatSamples[i], -1f, 1f);
-                short pcmSample = (short)(sample * short.MaxValue);
-                BitConverter.GetBytes(pcmSample).CopyTo(pcm, i * 2);
-            }
+                AudioFrame frame = frameNode.GetFrame();
 
-            return pcm;
+                // THIS is the WinUI 3-safe API
+                AudioBuffer audioBuffer = frame.LockBuffer(AudioBufferAccessMode.Read);
+
+                using (IMemoryBufferReference inRef = audioBuffer.CreateReference())
+                {
+                    unsafe
+                    {
+                        byte* src;
+                        uint srcCap;
+                        ((IMemoryBufferByteAccess)inRef).GetBuffer(out src, out srcCap);
+
+                        MemoryBuffer outBuffer = new MemoryBuffer(BytesPerFrame);
+
+                        using (IMemoryBufferReference outRef =
+                               outBuffer.CreateReference())
+                        {
+                            byte* dst;
+                            uint dstCap;
+                            ((IMemoryBufferByteAccess)outRef).GetBuffer(out dst, out dstCap);
+
+                            int bytesToCopy = (int)Math.Min(srcCap, dstCap);
+
+                            System.Buffer.MemoryCopy(src, dst, dstCap, bytesToCopy);
+
+                            // Zero-pad remainder
+                            for (int i = bytesToCopy; i < dstCap; i++)
+                                dst[i] = 0;
+                        }
+
+                        outgoingStream.SendRawAudioBufferAsync(
+                            new RawAudioBuffer()
+                            {
+                                Buffer = outBuffer
+                            }).Wait();
+                    }
+                }
+
+                nextTick = nextTick.AddMilliseconds(FrameMs);
+                TimeSpan wait = nextTick - DateTime.UtcNow;
+                if (wait > TimeSpan.Zero)
+                    Thread.Sleep(wait);
+            }
         }
 
-        public unsafe void OnQuantumStarted(AudioGraph sender, object args)
+        /*public unsafe void OnQuantumStarted(AudioFrameInputNode sender, FrameInputNodeQuantumStartedEventArgs args)
         {
             if (!IsPlaying || outgoingStream == null)
                 return;
 
             Debug.WriteLine("Quantum started.");
 
-            using var frame = frameNode.GetFrame();
-            using var audioBuffer = frame.LockBuffer(AudioBufferAccessMode.Read);
-            using var reference = audioBuffer.CreateReference();
+            uint numSamplesNeeded = (uint)args.RequiredSamples;
 
-            byte* src;
-            uint capacity;
-            ((IMemoryBufferByteAccess)reference).GetBuffer(out src, out capacity);
-
-            if (capacity == 0)
-                return;
-
-            // Create ACS-compatible buffer
-            var memoryBuffer = new MemoryBuffer(capacity);
-
-            using (var dstRef = memoryBuffer.CreateReference())
+            if (numSamplesNeeded != 0)
             {
-                byte* dst;
-                uint dstCap;
-                ((IMemoryBufferByteAccess)dstRef).GetBuffer(out dst, out dstCap);
+                AudioFrame audioData = GenerateAudioData(numSamplesNeeded);
+                currentFrameNode.AddFrame(audioData);
+            }
+        }
 
-                Buffer.MemoryCopy(src, dst, dstCap, capacity);
+        private unsafe AudioFrame GenerateAudioData(uint samples)
+        {
+            uint bufferSize = samples * sizeof(float);
+            AudioFrame frame = new AudioFrame(bufferSize);
+            RawOutgoingAudioStreamProperties properties = outgoingStream.Properties;
+            MemoryBuffer memoryBuffer = new MemoryBuffer((uint)outgoingStream.ExpectedBufferSizeInBytes);
+            using (AudioBuffer buffer = frame.LockBuffer(AudioBufferAccessMode.Write))
+            using (IMemoryBufferReference reference = buffer.CreateReference())
+            {
+                byte* dataInBytes;
+                uint capacityInBytes;
+                float* dataInFloat;
+
+                // Get the buffer from the AudioFrame
+                ((IMemoryBufferByteAccess)reference).GetBuffer(out dataInBytes, out capacityInBytes);
+
+                // Cast to float since the data we are generating is float
+                dataInFloat = (float*)dataInBytes;
+
+                float freq = 1000; // choosing to generate frequency of 1kHz
+                float amplitude = 0.3f;
+                double sampleIncrement = (freq * (Math.PI * 2)) / sampleRate;
+
+                // Generate a 1kHz sine wave and populate the values in the memory buffer
+                for (int i = 0; i < samples; i++)
+                {
+                    double sinValue = amplitude * Math.Sin(audioWaveTheta);
+                    dataInFloat[i] = (float)sinValue;
+                    audioWaveTheta += sampleIncrement;
+                }
             }
 
-            var rawBuffer = new RawAudioBuffer
-            {
-                Buffer = memoryBuffer
-            };
+            outgoingStream.SendRawAudioBufferAsync()
 
-            Debug.WriteLine("Firing stream!");
-            // Fire-and-forget is OK here (real-time audio)
-            _ = outgoingStream.SendRawAudioBufferAsync(rawBuffer);
-        }
+            return frame;
+        }*/
     }
 }

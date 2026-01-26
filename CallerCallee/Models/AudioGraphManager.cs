@@ -1,8 +1,11 @@
 ﻿using Microsoft.UI.Dispatching;
+using Microsoft.UI.Xaml.Controls;
 using System;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 using Windows.Foundation;
 using Windows.Media.Audio;
+using Windows.Media.MediaProperties;
 using Windows.Storage;
 
 namespace CallerCallee.Models
@@ -11,8 +14,9 @@ namespace CallerCallee.Models
     {
         private DispatcherQueue dispatcher;
         private DispatcherQueueController dispatcherController;
-        private AudioFrameOutputNode frameNode;
         private AudioGraph graph;
+        public static int FrameMs = 20;
+        public static int SampleRate = 48000;
 
         public async Task InitializeAsync()
         {
@@ -21,8 +25,10 @@ namespace CallerCallee.Models
 
             await EnqueueAsync(async () =>
             {
-                var settings = new AudioGraphSettings(
-                    Windows.Media.Render.AudioRenderCategory.Media);
+                var settings = new AudioGraphSettings(Windows.Media.Render.AudioRenderCategory.Media)
+                {
+                    DesiredSamplesPerQuantum = SampleRate / 1000 * FrameMs
+                };
 
                 var result = await AudioGraph.CreateAsync(settings);
 
@@ -34,10 +40,11 @@ namespace CallerCallee.Models
                 }
 
                 graph = result.Graph;
+                //graph.Stop();
             });
         }
 
-        public async Task<AudioFileInputNode> CreateFileNodeAsync(StorageFile file)
+        public async Task<AudioFileInputNode> CreateFrameInputNodeFromFile(StorageFile file)
         {
             return await EnqueueAsync(async () =>
             {
@@ -49,9 +56,16 @@ namespace CallerCallee.Models
                         "Failed to create AudioFileInputNode",
                         result.ExtendedError);
                 }
-
+                result.FileInputNode.Stop();
                 return result.FileInputNode;
             });
+        }
+
+        public AudioFrameOutputNode CreateFrameOutputNodeFromInputNode(AudioFileInputNode fileNode)
+        {
+            return graph.CreateFrameOutputNode(
+                AudioEncodingProperties.CreatePcm((uint)SampleRate, 1, 16)
+            );
         }
 
         public async Task StartAsync()
@@ -104,25 +118,5 @@ namespace CallerCallee.Models
 
             return await tcs.Task;
         }
-
-        public void AttachQuantumHandler(TypedEventHandler<AudioGraph, object> handler)
-        {
-            graph.QuantumStarted += handler;
-        }
-
-        public void DetachQuantumHandler(TypedEventHandler<AudioGraph, object> handler)
-        {
-            graph.QuantumStarted -= handler;
-        }
-
-        public async Task<AudioFrameOutputNode> CreateFrameOutputNodeAsync()
-        {
-            return await EnqueueAsync(() =>
-            {
-                frameNode = graph.CreateFrameOutputNode();
-                return Task.FromResult(frameNode);
-            });
-        }
-
     }
 }

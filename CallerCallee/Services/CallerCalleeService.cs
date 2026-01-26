@@ -12,6 +12,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Windows.ApplicationModel.Calls;
 
 namespace CallerCallee.Services
 {
@@ -81,22 +82,28 @@ namespace CallerCallee.Services
             {
                 while (dataset.TryDequeue(out DatasetEntry callEntry)) 
                 {
+                    await semaphore.WaitAsync();
+                    var popOk1 = availableCredentials.TryPop(out CommunicationUserIdentifierAndToken caller);
+                    var popOk2 = availableCredentials.TryPop(out CommunicationUserIdentifierAndToken callee);
+
                     try
                     {
-                        var popOk1 = availableCredentials.TryPop(out CommunicationUserIdentifierAndToken caller);
-                        var popOk2 = availableCredentials.TryPop(out CommunicationUserIdentifierAndToken callee);
                         if (popOk1  && popOk2)
                         {
-                            await semaphore.WaitAsync();
-                            
-                            var phoneCall = new PhoneCall(caller, callee, callEntry);
+                            var phoneCall = new Models.PhoneCall(caller, callee, callEntry);
                             phoneCall.OnEndOfCall += CallEnded;
                             await phoneCall.DialUp();
+                        } 
+                        else
+                        {
+                            semaphore.Release();
                         }
                     }
                     catch (Exception)
                     {
                         semaphore.Release();
+                        availableCredentials.Push(caller);
+                        availableCredentials.Push(callee);
                     }
                 }
             }
@@ -105,7 +112,7 @@ namespace CallerCallee.Services
 
         private void CallEnded(Object source, EventArgs e)
         {
-            if (source is PhoneCall phoneCall)
+            if (source is Models.PhoneCall phoneCall)
             {
                 phoneCall.OnEndOfCall -= CallEnded;
                 semaphore.Release();

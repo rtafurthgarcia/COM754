@@ -95,7 +95,7 @@ namespace CallerCallee.Models
         public async Task DialUp()
         {
             WeakReferenceMessenger.Default.Send(new CallInitiated(entry));
-            await audioGraphManager.InitializeAsync();
+            var audioInitTask = audioGraphManager.InitializeAsync();
             var callerTokenCredential = new CallTokenCredential(caller.IdentifierAndToken.AccessToken.Token, callTokenRefreshOptions);
             var calleeTokenCredential = new CallTokenCredential(callee.IdentifierAndToken.AccessToken.Token, callTokenRefreshOptions);
 
@@ -117,22 +117,18 @@ namespace CallerCallee.Models
                 }
             );
             callee.CallAgent.IncomingCallReceived += OnIncomingCallAsync;
+            await Task.Delay(1000); // give it enough slack so that the fist client gets registered. 
 
             caller.Call = await caller.CallAgent.StartCallAsync(
                 new[] { new UserCallIdentifier(callee.IdentifierAndToken.User.Id) },
                 GetOutgoingCallOptions()
             );
-            Debug.WriteLine($"{entry.Name}: Caller is phoning callee");
             caller.Call.StateChanged += OnCallStateChangedAsync;
+            Debug.WriteLine($"{entry.Name}: Caller is phoning callee");
 
-            caller.Bridge = new AudioGraphAcsBridge(await audioGraphManager.CreateFrameOutputNodeAsync());
-
-            audioGraphManager.AttachQuantumHandler(caller.Bridge.OnQuantumStarted);
-            audioGraphManager.AttachQuantumHandler(ConversationStarted);
-            //Ioc.Default.GetRequiredService<AudioGraphService>().AttachQuantumHandler(callee.Bridge.OnQuantumStarted);
-
-            caller.Bridge.AttachOutgoingStream(caller.Call.ActiveOutgoingAudioStream as RawOutgoingAudioStream);
-
+            caller.Bridge = new AudioGraphAcsBridge(caller.Call.ActiveOutgoingAudioStream as RawOutgoingAudioStream);
+            caller.Bridge.FileEnded += OnFileEnded;
+            await audioInitTask;
         }
 
         protected virtual void OnCallEnded(EventArgs args)
@@ -143,16 +139,25 @@ namespace CallerCallee.Models
         private async void OnIncomingCallAsync(object sender, IncomingCallReceivedEventArgs args)
         {
             var incomingCall = args.IncomingCall;
-
             var acceptCallOptions = GetIncomingCallOptions();
 
-            callee.Bridge = new AudioGraphAcsBridge(await audioGraphManager.CreateFrameOutputNodeAsync());
-            audioGraphManager.AttachQuantumHandler(callee.Bridge.OnQuantumStarted);
             callee.Call = await incomingCall.AcceptAsync(acceptCallOptions);
+            callee.Bridge = new AudioGraphAcsBridge(callee.Call.ActiveOutgoingAudioStream as RawOutgoingAudioStream);
+            callee.Bridge.FileEnded += OnFileEnded;
+
             Debug.WriteLine($"{entry.Name}: Callee has picked up the phone");
             callee.Call.StateChanged += OnCallStateChangedAsync;
-            callee.Bridge.AttachOutgoingStream(callee.Call.ActiveOutgoingAudioStream as RawOutgoingAudioStream);
             await audioGraphManager.StartAsync();
+            
+            await NextTurn();
+        }
+
+        private async void OnFileEnded(object sender, EventArgs e)
+        {
+            if (entry.Children is not null)
+            {
+                await NextTurn();
+            }
         }
 
         private async void OnCallStateChangedAsync(object sender, PropertyChangedEventArgs args)
@@ -171,6 +176,8 @@ namespace CallerCallee.Models
                             await audioGraphManager.StopAsync();
                             OnCallEnded(new EventArgs());
                             call.Dispose();
+                            caller.CallAgent.Dispose(); //otherwise doesnt liberate the credentials on the Azure side
+                            callee.CallAgent.Dispose();
 
                             // Implies the call was interrupted
                             if (entry.Children.Count > 0)
@@ -237,52 +244,28 @@ namespace CallerCallee.Models
             return options;
         }
 
-        private void ConversationStarted(AudioGraph sender, object args)
-        {
-            audioGraphManager.DetachQuantumHandler(ConversationStarted);
-            
+        private async Task NextTurn()
+        {            
             currentSpeaker = Speaker.Caller;
             Debug.WriteLine($"{entry.Name}: Conversation is starting");
-            while (entry.Children is not null)
+            
+            var turn = entry.Children.Dequeue();
+            var file = await StorageFile.GetFileFromPathAsync(turn.FilePath);
+            var fileNode = await audioGraphManager.CreateFrameInputNodeFromFile(file);
+            var frameNode = audioGraphManager.CreateFrameOutputNodeFromInputNode(fileNode);
+
+            if (currentSpeaker.Equals(Speaker.Caller))
             {
-                var turn = entry.Children.Dequeue();
-                var file = StorageFile.GetFileFromPathAsync(turn.FilePath).Get();
-                
-                if (currentSpeaker.Equals(Speaker.Caller))
-                {
-                    Debug.WriteLine($"{entry.Name}: Caller speaking: {file.Name}");
-                    PlayTurn(caller.Bridge, file).Wait();
-                }
-                else
-                {
-                    Debug.WriteLine($"{entry.Name}: Callee speaking: {file.Name}");
-                    PlayTurn(callee.Bridge, file).Wait();
-                }
-                currentSpeaker = currentSpeaker.Equals(Speaker.Caller) ? Speaker.Callee : Speaker.Caller;
+                Debug.WriteLine($"{entry.Name}: Caller speaking: {file.Name}");
+                caller.Bridge.StartPlayingAudio(frameNode, fileNode);
             }
-        }
-
-        private async Task PlayTurn(AudioGraphAcsBridge bridge, StorageFile file)
-        {
-            var node = await audioGraphManager.CreateFileNodeAsync(file);
-            System.Diagnostics.Debug.WriteLine($"{entry.Name}: {file.Name} will last {node.Duration.TotalSeconds} seconds.");
-            var tcs = new TaskCompletionSource();
-
-            bridge.TurnFinished += () => tcs.TrySetResult();
-            node.FileCompleted += (_, __) =>
+            else
             {
-                bridge.EndTurn();
-                System.Diagnostics.Debug.WriteLine($"{entry.Name}: EOF reached for {file.Name}.");
-            };
-
-            bridge.StartTurn();
-            node.Start();
-
-            await tcs.Task;
-
-            node.Stop();
-            node.Dispose();
-            Debug.WriteLine($"{entry.Name}: End of turn for {file.Name}.");
+                Debug.WriteLine($"{entry.Name}: Callee speaking: {file.Name}");
+                callee.Bridge.StartPlayingAudio(frameNode, fileNode);
+            }
+            currentSpeaker = currentSpeaker.Equals(Speaker.Caller) ? Speaker.Callee : Speaker.Caller;
+            
         }
     }
 }
