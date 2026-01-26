@@ -66,7 +66,6 @@ namespace CallerCallee.Services
         )
         {
             DatasetEntry entry = null;
-            await semaphore.WaitAsync();
             try
             {
                 if (dataset.TryDequeue(out entry))
@@ -92,12 +91,12 @@ namespace CallerCallee.Services
 
             while (!dataset.IsEmpty)
             {
+                await semaphore.WaitAsync();
                 var caller = await communicationIdentity
                     .CreateUserAndTokenAsync([CommunicationTokenScope.VoIP]);
 
                 var callee = await communicationIdentity
                     .CreateUserAndTokenAsync([CommunicationTokenScope.VoIPJoin]);
-
                 tasks.Add(RunPhoneCallAsync(caller, callee, semaphore, dataset));
             }
 

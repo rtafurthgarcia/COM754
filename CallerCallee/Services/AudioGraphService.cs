@@ -9,17 +9,20 @@ namespace CallerCallee.Services
 {
     public sealed class AudioGraphService
     {
-        private readonly DispatcherQueue dispatcher;
-        private AudioGraph graph;
+        private DispatcherQueue dispatcher;
+        private DispatcherQueueController dispatcherController;
         private AudioFrameOutputNode frameNode;
+        private AudioGraph graph;
 
-        public AudioGraphService(DispatcherQueue dispatcher)
+        public AudioGraphService()
         {
-            this.dispatcher = dispatcher;
         }
 
         public async Task InitializeAsync()
         {
+            dispatcherController = DispatcherQueueController.CreateOnDedicatedThread();
+            dispatcher = dispatcherController.DispatcherQueue;
+
             await EnqueueAsync(async () =>
             {
                 var settings = new AudioGraphSettings(
@@ -104,15 +107,6 @@ namespace CallerCallee.Services
             });
 
             return await tcs.Task;
-        }
-
-        public async Task PlayFileAsync(StorageFile file)
-        {
-            await EnqueueAsync(() =>
-            {
-                var fileInputNode = graph.CreateFileInputNodeAsync(file);
-                return Task.FromResult(fileInputNode);
-            });
         }
 
         public void AttachQuantumHandler(TypedEventHandler<AudioGraph, object> handler)

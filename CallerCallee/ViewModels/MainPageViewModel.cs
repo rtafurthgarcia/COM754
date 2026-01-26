@@ -91,7 +91,7 @@ namespace CallerCallee.ViewModels
             }
 
             await datasetService.LoadDatasetEntries(file.Path);
-            DatasetCount = datasetService.Dataset == null ? 0 : datasetService.Dataset.Count;
+            DatasetCount = datasetService.Dataset is null ? 0 : datasetService.Dataset.Count;
             settingsService.SetValue("datasetpath", file.Path);
         }
         [RelayCommand(CanExecute = nameof(CanRunSimulation))]
@@ -140,7 +140,7 @@ namespace CallerCallee.ViewModels
             try
             {
                 await datasetService.LoadDatasetEntries(path);
-                DatasetCount = datasetService.Dataset == null ? 0 : datasetService.Dataset.Count;
+                DatasetCount = datasetService.Dataset is null ? 0 : datasetService.Dataset.Count;
                 await Authenticate();
                 await RunSimulation();
             }

@@ -75,7 +75,8 @@
 
         <!-- TreeView bound to DataSource, using the ItemTemplateSelector -->
         <ScrollView Grid.Row="2" Grid.Column="0">
-            <TreeView ItemsSource="{x:Bind ViewModel.DataSource }" ItemTemplateSelector="{StaticResource DatasetEntryTemplateSelector}"/>
+            <TreeView x:Name="MainTreeView" ItemsSource="{x:Bind ViewModel.DataSource }" SelectionMode="Multiple"
+                    ItemTemplateSelector="{StaticResource DatasetEntryTemplateSelector}"/>
         </ScrollView>
 
         <ProgressBar x:Name="ProgressBarInfinite" Grid.Column="0"

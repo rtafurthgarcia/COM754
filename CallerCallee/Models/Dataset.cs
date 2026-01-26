@@ -43,7 +43,7 @@ namespace CallerCallee.Models
             var explorerItem = (DatasetEntry)item;
 
             // Return the appropriate template: FolderTemplate for folders, FileTemplate for files.
-            return explorerItem.Type == DatasetEntry.DisplayType.Call
+            return explorerItem.Type.Equals(DatasetEntry.DisplayType.Call)
                 ? CallTemplate
                 : TurnOfConversationTemplate;
         }

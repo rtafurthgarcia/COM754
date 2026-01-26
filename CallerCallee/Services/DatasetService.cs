@@ -68,10 +68,10 @@ namespace CallerCallee.Services
             {
                 Name = columns[0],
                 Type = DisplayType.Call,
-                Kind = columns[2] == "0" ? DatasetEntryKind.NotVishing : DatasetEntryKind.Vishing,
+                Kind = columns[2].Equals("0") ? DatasetEntryKind.NotVishing : DatasetEntryKind.Vishing,
                 FilePath = Path.Combine(
                     parentOfParentPath.FullName,
-                    columns[2] == "0" ? "nv" : "v",
+                    columns[2].Equals("0") ? "nv" : "v",
                     columns[0])
             };
         }
