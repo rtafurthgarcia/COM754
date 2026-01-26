@@ -9,15 +9,15 @@ namespace CallerCallee.Models
 {
     public static class SimulationNotification
     {
-        public class DatasetEntryWorkedOn(DatasetEntry entry) : ValueChangedMessage<DatasetEntry>(entry)
+        public class CallInitiated(DatasetEntry entry) : ValueChangedMessage<DatasetEntry>(entry)
         {
         }
 
-        public class DatasetEntryFinished(DatasetEntry entry) : ValueChangedMessage<DatasetEntry>(entry)
+        public class CallCompleted(DatasetEntry entry) : ValueChangedMessage<DatasetEntry>(entry)
         {
         }
 
-        public class DatasetEntryFailed(Exception exception) : ValueChangedMessage<Exception>(exception)
+        public class CallInterrupted(Exception exception) : ValueChangedMessage<Exception>(exception)
         {
         }
 

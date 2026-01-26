@@ -2,9 +2,9 @@
 using Azure.Communication.Calling.WindowsClient;
 using Azure.Communication.Identity;
 using CallerCallee.Helpers;
-using CallerCallee.Services;
 using CommunityToolkit.Mvvm.DependencyInjection;
 using CommunityToolkit.Mvvm.Messaging;
+using CommunityToolkit.Mvvm.Messaging.Messages;
 using NAudio.Wave;
 using System;
 using System.Collections.Generic;
@@ -17,6 +17,7 @@ using Windows.Foundation;
 using Windows.Media;
 using Windows.Media.Audio;
 using Windows.Storage;
+using static CallerCallee.Models.SimulationNotification;
 
 namespace CallerCallee.Models
 {
@@ -32,7 +33,32 @@ namespace CallerCallee.Models
 
         private readonly CallContainer caller;
         private readonly CallContainer callee;
+
+        public CommunicationUserIdentifierAndToken OfCaller
+        {
+            get
+            {
+                return caller.IdentifierAndToken;
+            }
+
+            private set;
+        }
+        public CommunicationUserIdentifierAndToken OfCallee
+        {
+            get
+            {
+                return callee.IdentifierAndToken;
+            }
+
+            private set;
+        }
+
         private readonly DatasetEntry entry;
+        public DatasetEntry Entry
+        {
+            get => entry;
+            private set;
+        }
 
         enum Speaker
         {
@@ -41,6 +67,7 @@ namespace CallerCallee.Models
         }
 
         private Speaker currentSpeaker;
+        private readonly AudioGraphManager audioGraphManager;
 
         private readonly CallTokenRefreshOptions callTokenRefreshOptions = new(true);
         private readonly CallClientOptions callClientOptions = new()
@@ -53,16 +80,22 @@ namespace CallerCallee.Models
             }
         };
 
+        public readonly DateTime StartTime = DateTime.Now;
+
         public PhoneCall(CommunicationUserIdentifierAndToken callerIdAndToken, CommunicationUserIdentifierAndToken calleeIdAndToken, DatasetEntry entry)
         {
             caller = new CallContainer(callerIdAndToken);
             callee = new CallContainer(calleeIdAndToken);
             this.entry = entry;
+            audioGraphManager = new();
         }
+
+        public EventHandler OnEndOfCall;
 
         public async Task DialUp()
         {
-            WeakReferenceMessenger.Default.Send(new SimulationNotification.DatasetEntryWorkedOn(entry));
+            WeakReferenceMessenger.Default.Send(new CallInitiated(entry));
+            await audioGraphManager.InitializeAsync();
             var callerTokenCredential = new CallTokenCredential(caller.IdentifierAndToken.AccessToken.Token, callTokenRefreshOptions);
             var calleeTokenCredential = new CallTokenCredential(callee.IdentifierAndToken.AccessToken.Token, callTokenRefreshOptions);
 
@@ -89,36 +122,43 @@ namespace CallerCallee.Models
                 new[] { new UserCallIdentifier(callee.IdentifierAndToken.User.Id) },
                 GetOutgoingCallOptions()
             );
-            System.Diagnostics.Debug.WriteLine($"{entry.Name}: Caller is phoning callee");
+            Debug.WriteLine($"{entry.Name}: Caller is phoning callee");
             caller.Call.StateChanged += OnCallStateChangedAsync;
 
-            caller.Bridge = new AudioGraphAcsBridge(await Ioc.Default.GetRequiredService<AudioGraphService>().CreateFrameOutputNodeAsync());
+            caller.Bridge = new AudioGraphAcsBridge(await audioGraphManager.CreateFrameOutputNodeAsync());
 
-            Ioc.Default.GetRequiredService<AudioGraphService>().AttachQuantumHandler(caller.Bridge.OnQuantumStarted);
-            Ioc.Default.GetRequiredService<AudioGraphService>().AttachQuantumHandler(ConversationStarted);
+            audioGraphManager.AttachQuantumHandler(caller.Bridge.OnQuantumStarted);
+            audioGraphManager.AttachQuantumHandler(ConversationStarted);
             //Ioc.Default.GetRequiredService<AudioGraphService>().AttachQuantumHandler(callee.Bridge.OnQuantumStarted);
 
             caller.Bridge.AttachOutgoingStream(caller.Call.ActiveOutgoingAudioStream as RawOutgoingAudioStream);
 
         }
+
+        protected virtual void OnCallEnded(EventArgs args)
+        {
+            OnEndOfCall?.Invoke(this, args);
+        }
+
         private async void OnIncomingCallAsync(object sender, IncomingCallReceivedEventArgs args)
         {
             var incomingCall = args.IncomingCall;
 
             var acceptCallOptions = GetIncomingCallOptions();
 
-            callee.Bridge = new AudioGraphAcsBridge(await Ioc.Default.GetRequiredService<AudioGraphService>().CreateFrameOutputNodeAsync());
-            Ioc.Default.GetRequiredService<AudioGraphService>().AttachQuantumHandler(callee.Bridge.OnQuantumStarted);
+            callee.Bridge = new AudioGraphAcsBridge(await audioGraphManager.CreateFrameOutputNodeAsync());
+            audioGraphManager.AttachQuantumHandler(callee.Bridge.OnQuantumStarted);
             callee.Call = await incomingCall.AcceptAsync(acceptCallOptions);
             Debug.WriteLine($"{entry.Name}: Callee has picked up the phone");
             callee.Call.StateChanged += OnCallStateChangedAsync;
             callee.Bridge.AttachOutgoingStream(callee.Call.ActiveOutgoingAudioStream as RawOutgoingAudioStream);
-            await Ioc.Default.GetRequiredService<AudioGraphService>().StartAsync();
+            await audioGraphManager.StartAsync();
         }
 
         private async void OnCallStateChangedAsync(object sender, PropertyChangedEventArgs args)
         {
             var call = sender as CommunicationCall;
+           
             if (call != null)
             {
                 var state = call.State;
@@ -128,15 +168,16 @@ namespace CallerCallee.Models
                         {
                             Debug.WriteLine($"{entry.Name}: Call has been disconnected.");
                             call.StateChanged -= OnCallStateChangedAsync;
-                            await Ioc.Default.GetRequiredService<AudioGraphService>().StopAsync();
+                            await audioGraphManager.StopAsync();
+                            OnCallEnded(new EventArgs());
                             call.Dispose();
 
                             // Implies the call was interrupted
                             if (entry.Children.Count > 0)
                             {
-                                System.Diagnostics.Debug.WriteLine($"{entry.Name}: Call interrupted unexpectedly.");
+                                Debug.WriteLine($"{entry.Name}: Call interrupted unexpectedly.");
                                 WeakReferenceMessenger.Default.Send(
-                                    new SimulationNotification.DatasetEntryFailed(
+                                    new CallInterrupted(
                                         new Exception("Call interrupted unexpectedly")
                                     )
                                 );
@@ -172,7 +213,7 @@ namespace CallerCallee.Models
             return options;
         }
 
-        private AcceptCallOptions GetIncomingCallOptions()
+        private static AcceptCallOptions GetIncomingCallOptions()
         {
             var outgoingAudioProperties = new RawOutgoingAudioStreamProperties()
             {
@@ -196,24 +237,12 @@ namespace CallerCallee.Models
             return options;
         }
 
-        private void AudioStreamStateChanged(object sender, AudioStreamStateChangedEventArgs args)
-        {
-            if (args.Stream.State.Equals(AudioStreamState.Started))
-            {
-                //audioGraph.QuantumStarted += ConversationStarted;
-                //audioGraph.Start();
-                //Ioc.Default.GetRequiredService<AudioGraphService>().StartAsync();
-                
-                System.Diagnostics.Debug.WriteLine($"{entry.Name}: Audio Stream is starting");
-            }
-        }
-
         private void ConversationStarted(AudioGraph sender, object args)
         {
-            //audioGraph.QuantumStarted -= ConversationStarted;
+            audioGraphManager.DetachQuantumHandler(ConversationStarted);
             
             currentSpeaker = Speaker.Caller;
-            System.Diagnostics.Debug.WriteLine($"{entry.Name}: Conversation is starting");
+            Debug.WriteLine($"{entry.Name}: Conversation is starting");
             while (entry.Children is not null)
             {
                 var turn = entry.Children.Dequeue();
@@ -221,12 +250,12 @@ namespace CallerCallee.Models
                 
                 if (currentSpeaker.Equals(Speaker.Caller))
                 {
-                    System.Diagnostics.Debug.WriteLine($"{entry.Name}: Caller speaking: {file.Name}");
+                    Debug.WriteLine($"{entry.Name}: Caller speaking: {file.Name}");
                     PlayTurn(caller.Bridge, file).Wait();
                 }
                 else
                 {
-                    System.Diagnostics.Debug.WriteLine($"{entry.Name}: Callee speaking: {file.Name}");
+                    Debug.WriteLine($"{entry.Name}: Callee speaking: {file.Name}");
                     PlayTurn(callee.Bridge, file).Wait();
                 }
                 currentSpeaker = currentSpeaker.Equals(Speaker.Caller) ? Speaker.Callee : Speaker.Caller;
@@ -235,7 +264,7 @@ namespace CallerCallee.Models
 
         private async Task PlayTurn(AudioGraphAcsBridge bridge, StorageFile file)
         {
-            var node = Ioc.Default.GetRequiredService<AudioGraphService>().CreateFileNodeAsync(file).Result;
+            var node = await audioGraphManager.CreateFileNodeAsync(file);
             System.Diagnostics.Debug.WriteLine($"{entry.Name}: {file.Name} will last {node.Duration.TotalSeconds} seconds.");
             var tcs = new TaskCompletionSource();
 
@@ -253,7 +282,7 @@ namespace CallerCallee.Models
 
             node.Stop();
             node.Dispose();
-            System.Diagnostics.Debug.WriteLine($"{entry.Name}: End of turn for {file.Name}.");
+            Debug.WriteLine($"{entry.Name}: End of turn for {file.Name}.");
         }
     }
 }

@@ -54,9 +54,9 @@ namespace CallerCallee.ViewModels
                 AutorunEverythingCommand.Execute(null);
             }
 
-            WeakReferenceMessenger.Default.Register<SimulationNotification.DatasetEntryWorkedOn>(this, (r, m) => DataSource.Add(m.Value));
+            WeakReferenceMessenger.Default.Register<SimulationNotification.CallInitiated>(this, (r, m) => DataSource.Add(m.Value));
             WeakReferenceMessenger.Default.Register<SimulationNotification.TurnBeingPlayed>(this, (r, m) => CurrentTurns[m.Value.Parent] = m.Value.Child);
-            WeakReferenceMessenger.Default.Register<SimulationNotification.DatasetEntryFinished>(this, (r, m) => {
+            WeakReferenceMessenger.Default.Register<SimulationNotification.CallCompleted>(this, (r, m) => {
                 if (DataSource.Contains(m.Value)) {
                     DataSource.Remove(m.Value);
                 }
@@ -99,7 +99,7 @@ namespace CallerCallee.ViewModels
         {
             try
             {
-                await callerCalleeService.StartSimulation(Credential);
+                await callerCalleeService.StartSimulation(Credential, 4);
             } 
             catch (Exception e)
             {

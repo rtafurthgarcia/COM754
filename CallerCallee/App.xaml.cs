@@ -30,11 +30,8 @@ namespace CallerCallee
         /// Invoked when the application is launched.
         /// </summary>
         /// <param name="args">Details about the launch request and process.</param>
-        protected override async void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
+        protected override void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
         {
-            var audioGraphService = new AudioGraphService();
-            await audioGraphService.InitializeAsync();
-
             // Register services
             Ioc.Default.ConfigureServices(
                 new ServiceCollection()
@@ -42,7 +39,7 @@ namespace CallerCallee
                 .AddSingleton<DatasetService>()
                 .AddSingleton<CallerCalleeService>()
                 .AddSingleton<SettingsService>()
-                .AddSingleton(audioGraphService)
+                //.AddScoped(audioGraphService, System.Type.)
 
                 // models
                 .AddTransient<MainPageViewModel>()

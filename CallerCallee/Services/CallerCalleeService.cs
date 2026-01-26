@@ -1,22 +1,17 @@
-﻿using Azure.Communication.Calling.WindowsClient;
-using Azure.Communication.Identity;
+﻿using Azure.Communication.Identity;
 using Azure.Identity;
 using Azure.ResourceManager;
 using Azure.ResourceManager.KeyVault;
 using Azure.Security.KeyVault.Secrets;
-using CallerCallee.Helpers;
 using CallerCallee.Models;
 using CommunityToolkit.Mvvm.DependencyInjection;
-using CommunityToolkit.Mvvm.Messaging;
-using NAudio.Wave;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows.Forms;
-using Windows.Foundation;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement.TrackBar;
 
 namespace CallerCallee.Services
 {
@@ -27,7 +22,10 @@ namespace CallerCallee.Services
         private string keyVaultName;
         private KeyVaultSecret csEndpoint;
 
-        CommunicationIdentityClient communicationIdentity;
+        private CommunicationIdentityClient communicationIdentity;
+        private ConcurrentStack<CommunicationUserIdentifierAndToken> availableCredentials;
+        private SemaphoreSlim semaphore;
+
         public async Task<DefaultAzureCredential> Authenticate()
         {
             var credential = new DefaultAzureCredential();
@@ -58,50 +56,65 @@ namespace CallerCallee.Services
             throw new AuthenticationFailedException("Could not find the keyvault name");
         }
 
-        private async Task RunPhoneCallAsync(
-            CommunicationUserIdentifierAndToken caller,
-            CommunicationUserIdentifierAndToken callee,
-            SemaphoreSlim semaphore,
-            ConcurrentQueue<DatasetEntry> dataset
-        )
-        {
-            DatasetEntry entry = null;
-            try
-            {
-                if (dataset.TryDequeue(out entry))
-                {
-                    var phoneCall = new PhoneCall(caller, callee, entry);
-                    await phoneCall.DialUp();
-                }
-            }
-            finally
-            {
-                semaphore.Release();
-            }
-        }
-
-        public async Task StartSimulation(DefaultAzureCredential credential)
+        public async Task StartSimulation(DefaultAzureCredential credential, int maxAmountOfParallelCalls)
         {
             ArgumentNullException.ThrowIfNull(credential);
 
-            var semaphore = new SemaphoreSlim(1, 1);
+            availableCredentials = new ConcurrentStack<CommunicationUserIdentifierAndToken>();
+            Debug.WriteLine($"Generating {maxAmountOfParallelCalls} pairs of credentials.");
+            await Task.WhenAll(
+                Enumerable
+                    .Range(0, (maxAmountOfParallelCalls * 2))
+                    .AsParallel()
+                    .Select(async i =>
+                    {
+                        availableCredentials.Push(await communicationIdentity.CreateUserAndTokenAsync([CommunicationTokenScope.VoIP]));
+                        Debug.WriteLine($"{i} generated.");
+                        return i;
+                    })
+            );
+
+            semaphore = new SemaphoreSlim(maxAmountOfParallelCalls, maxAmountOfParallelCalls);
             var dataset = Ioc.Default.GetRequiredService<DatasetService>().Dataset;
-
-            var tasks = new List<Task>();
-
-            while (!dataset.IsEmpty)
+            Debug.WriteLine($"Running simulation on {dataset.Count} calls.");
+            do
             {
-                await semaphore.WaitAsync();
-                var caller = await communicationIdentity
-                    .CreateUserAndTokenAsync([CommunicationTokenScope.VoIP]);
-
-                var callee = await communicationIdentity
-                    .CreateUserAndTokenAsync([CommunicationTokenScope.VoIPJoin]);
-                tasks.Add(RunPhoneCallAsync(caller, callee, semaphore, dataset));
+                while (dataset.TryDequeue(out DatasetEntry callEntry)) 
+                {
+                    try
+                    {
+                        var popOk1 = availableCredentials.TryPop(out CommunicationUserIdentifierAndToken caller);
+                        var popOk2 = availableCredentials.TryPop(out CommunicationUserIdentifierAndToken callee);
+                        if (popOk1  && popOk2)
+                        {
+                            await semaphore.WaitAsync();
+                            
+                            var phoneCall = new PhoneCall(caller, callee, callEntry);
+                            phoneCall.OnEndOfCall += CallEnded;
+                            await phoneCall.DialUp();
+                        }
+                    }
+                    catch (Exception)
+                    {
+                        semaphore.Release();
+                    }
+                }
             }
-
-            await Task.WhenAll(tasks);
+            while (!dataset.IsEmpty && availableCredentials.Count >= 2);
         }
 
+        private void CallEnded(Object source, EventArgs e)
+        {
+            if (source is PhoneCall phoneCall)
+            {
+                phoneCall.OnEndOfCall -= CallEnded;
+                semaphore.Release();
+                Debug.WriteLine($"{phoneCall.Entry.Name}: Call ended after {(int)(DateTime.Now - phoneCall.StartTime).TotalSeconds} seconds");
+
+                availableCredentials.Push(phoneCall.OfCallee);
+                availableCredentials.Push(phoneCall.OfCaller);
+            }
+            //Console.WriteLine("The Elapsed event was raised at {0}", e.SignalTime);
+        }
     }
 }

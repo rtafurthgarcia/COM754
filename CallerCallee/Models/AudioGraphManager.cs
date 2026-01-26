@@ -5,18 +5,14 @@ using Windows.Foundation;
 using Windows.Media.Audio;
 using Windows.Storage;
 
-namespace CallerCallee.Services
+namespace CallerCallee.Models
 {
-    public sealed class AudioGraphService
+    public sealed class AudioGraphManager
     {
         private DispatcherQueue dispatcher;
         private DispatcherQueueController dispatcherController;
         private AudioFrameOutputNode frameNode;
         private AudioGraph graph;
-
-        public AudioGraphService()
-        {
-        }
 
         public async Task InitializeAsync()
         {
@@ -112,6 +108,11 @@ namespace CallerCallee.Services
         public void AttachQuantumHandler(TypedEventHandler<AudioGraph, object> handler)
         {
             graph.QuantumStarted += handler;
+        }
+
+        public void DetachQuantumHandler(TypedEventHandler<AudioGraph, object> handler)
+        {
+            graph.QuantumStarted -= handler;
         }
 
         public async Task<AudioFrameOutputNode> CreateFrameOutputNodeAsync()
