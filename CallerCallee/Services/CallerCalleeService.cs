@@ -85,8 +85,8 @@ namespace CallerCallee.Services
                     await semaphore.WaitAsync();
                     var popOk1 = availableCredentials.TryPop(out CommunicationUserIdentifierAndToken caller);
                     var popOk2 = availableCredentials.TryPop(out CommunicationUserIdentifierAndToken callee);
-                    int callerDevice = Ioc.Default.GetRequiredService<AudioPlayerService>().GetAvailableDevice();
-                    int calleeDevice = Ioc.Default.GetRequiredService<AudioPlayerService>().GetAvailableDevice();
+                    int callerDevice = Ioc.Default.GetRequiredService<AudioService>().GetAvailableDevice();
+                    int calleeDevice = Ioc.Default.GetRequiredService<AudioService>().GetAvailableDevice();
 
                     try
                     {
@@ -99,6 +99,8 @@ namespace CallerCallee.Services
                         else
                         {
                             semaphore.Release();
+                            Ioc.Default.GetRequiredService<AudioService>().TryFreeDevice(calleeDevice);
+                            Ioc.Default.GetRequiredService<AudioService>().TryFreeDevice(callerDevice);
                         }
                     }
                     catch (Exception)
@@ -106,6 +108,8 @@ namespace CallerCallee.Services
                         semaphore.Release();
                         availableCredentials.Push(caller);
                         availableCredentials.Push(callee);
+                        Ioc.Default.GetRequiredService<AudioService>().TryFreeDevice(calleeDevice);
+                        Ioc.Default.GetRequiredService<AudioService>().TryFreeDevice(callerDevice);
                     }
                 }
             }
@@ -120,8 +124,10 @@ namespace CallerCallee.Services
                 semaphore.Release();
                 Debug.WriteLine($"{phoneCall.Entry.Name}: Call ended after {(int)(DateTime.Now - phoneCall.StartTime).TotalSeconds} seconds");
 
-                availableCredentials.Push(phoneCall.OfCallee);
-                availableCredentials.Push(phoneCall.OfCaller);
+                availableCredentials.Push(phoneCall.callee.IdentifierAndToken);
+                availableCredentials.Push(phoneCall.caller.IdentifierAndToken);
+                Ioc.Default.GetRequiredService<AudioService>().TryFreeDevice(phoneCall.caller.AudioDeviceNumber);
+                Ioc.Default.GetRequiredService<AudioService>().TryFreeDevice(phoneCall.callee.AudioDeviceNumber);
             }
             //Console.WriteLine("The Elapsed event was raised at {0}", e.SignalTime);
         }

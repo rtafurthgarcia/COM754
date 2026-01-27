@@ -40,7 +40,7 @@ namespace CallerCallee
                 .AddSingleton<CallerCalleeService>()
                 .AddSingleton<SettingsService>()
                 .AddSingleton<FilePickerService>()
-                .AddSingleton<AudioPlayerService>()
+                .AddSingleton<AudioService>()
 
                 // models
                 .AddTransient<MainPageViewModel>()
