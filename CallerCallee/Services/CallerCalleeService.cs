@@ -85,12 +85,14 @@ namespace CallerCallee.Services
                     await semaphore.WaitAsync();
                     var popOk1 = availableCredentials.TryPop(out CommunicationUserIdentifierAndToken caller);
                     var popOk2 = availableCredentials.TryPop(out CommunicationUserIdentifierAndToken callee);
+                    int callerDevice = Ioc.Default.GetRequiredService<AudioPlayerService>().GetAvailableDevice();
+                    int calleeDevice = Ioc.Default.GetRequiredService<AudioPlayerService>().GetAvailableDevice();
 
                     try
                     {
                         if (popOk1  && popOk2)
                         {
-                            var phoneCall = new Models.PhoneCall(caller, callee, callEntry);
+                            var phoneCall = new Models.PhoneCall(caller, callee, callerDevice, calleeDevice, callEntry);
                             phoneCall.OnEndOfCall += CallEnded;
                             await phoneCall.DialUp();
                         } 

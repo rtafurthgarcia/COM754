@@ -57,6 +57,9 @@
 			<Generator>MSBuild:Compile</Generator>
 		</None>
 	</ItemGroup>
+	<ItemGroup>
+	  <Folder Include="Helpers\" />
+	</ItemGroup>
 
 	<!-- 
     Defining the "HasPackageAndPublishMenuAddedByProject" property here allows the Solution 

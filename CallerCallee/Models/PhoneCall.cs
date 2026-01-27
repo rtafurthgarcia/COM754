@@ -1,21 +1,12 @@
-﻿using Azure.Communication;
-using Azure.Communication.Calling.WindowsClient;
+﻿using Azure.Communication.Calling.WindowsClient;
 using Azure.Communication.Identity;
-using CallerCallee.Helpers;
+using CallerCallee.Services;
 using CommunityToolkit.Mvvm.DependencyInjection;
 using CommunityToolkit.Mvvm.Messaging;
-using CommunityToolkit.Mvvm.Messaging.Messages;
-using NAudio.Wave;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Diagnostics.Metrics;
-using System.Runtime.InteropServices;
-using System.Threading;
 using System.Threading.Tasks;
-using Windows.Foundation;
-using Windows.Media;
-using Windows.Media.Audio;
 using Windows.Storage;
 using static CallerCallee.Models.SimulationNotification;
 
@@ -28,7 +19,8 @@ namespace CallerCallee.Models
             public CallClient CallClient;
             public CallAgent CallAgent;
             public CommunicationCall Call;
-            public AudioGraphAcsBridge Bridge;
+            public int AudioDeviceNumber;
+            //public AudioGraphAcsBridge Bridge;
         };
 
         private readonly CallContainer caller;
@@ -67,8 +59,6 @@ namespace CallerCallee.Models
         }
 
         private Speaker currentSpeaker;
-        private readonly AudioGraphManager audioGraphManager;
-
         private readonly CallTokenRefreshOptions callTokenRefreshOptions = new(true);
         private readonly CallClientOptions callClientOptions = new()
         {
@@ -80,14 +70,24 @@ namespace CallerCallee.Models
             }
         };
 
+        //private readonly AudioPlayerService audioPlayerService = Ioc.Default.GetRequiredService<AudioPlayerService>();
+        private int audioDeviceNumber;
+
         public readonly DateTime StartTime = DateTime.Now;
 
-        public PhoneCall(CommunicationUserIdentifierAndToken callerIdAndToken, CommunicationUserIdentifierAndToken calleeIdAndToken, DatasetEntry entry)
+        public PhoneCall(
+            CommunicationUserIdentifierAndToken callerIdAndToken, 
+            CommunicationUserIdentifierAndToken calleeIdAndToken, 
+            int callerDeviceNumber, 
+            int calleeDeviceNumber, 
+            DatasetEntry entry
+        )
         {
             caller = new CallContainer(callerIdAndToken);
             callee = new CallContainer(calleeIdAndToken);
             this.entry = entry;
-            audioGraphManager = new();
+            caller.AudioDeviceNumber = callerDeviceNumber;
+            callee.AudioDeviceNumber = calleeDeviceNumber;
         }
 
         public EventHandler OnEndOfCall;
@@ -95,7 +95,6 @@ namespace CallerCallee.Models
         public async Task DialUp()
         {
             WeakReferenceMessenger.Default.Send(new CallInitiated(entry));
-            var audioInitTask = audioGraphManager.InitializeAsync();
             var callerTokenCredential = new CallTokenCredential(caller.IdentifierAndToken.AccessToken.Token, callTokenRefreshOptions);
             var calleeTokenCredential = new CallTokenCredential(callee.IdentifierAndToken.AccessToken.Token, callTokenRefreshOptions);
 
@@ -117,7 +116,7 @@ namespace CallerCallee.Models
                 }
             );
             callee.CallAgent.IncomingCallReceived += OnIncomingCallAsync;
-            await Task.Delay(1000); // give it enough slack so that the fist client gets registered. 
+            await Task.Delay(5000); // give it enough slack so that the fist client gets registered. 
 
             caller.Call = await caller.CallAgent.StartCallAsync(
                 new[] { new UserCallIdentifier(callee.IdentifierAndToken.User.Id) },
@@ -126,9 +125,10 @@ namespace CallerCallee.Models
             caller.Call.StateChanged += OnCallStateChangedAsync;
             Debug.WriteLine($"{entry.Name}: Caller is phoning callee");
 
-            caller.Bridge = new AudioGraphAcsBridge(caller.Call.ActiveOutgoingAudioStream as RawOutgoingAudioStream);
-            caller.Bridge.FileEnded += OnFileEnded;
-            await audioInitTask;
+            //caller.Bridge = new AudioGraphAcsBridge(caller.Call.ActiveOutgoingAudioStream as RawOutgoingAudioStream);
+            
+            //caller.Bridge.FileEnded += OnFileEnded;
+            //await audioInitTask;
         }
 
         protected virtual void OnCallEnded(EventArgs args)
@@ -142,12 +142,12 @@ namespace CallerCallee.Models
             var acceptCallOptions = GetIncomingCallOptions();
 
             callee.Call = await incomingCall.AcceptAsync(acceptCallOptions);
-            callee.Bridge = new AudioGraphAcsBridge(callee.Call.ActiveOutgoingAudioStream as RawOutgoingAudioStream);
-            callee.Bridge.FileEnded += OnFileEnded;
+            //callee.Bridge = new AudioGraphAcsBridge(callee.Call.ActiveOutgoingAudioStream as RawOutgoingAudioStream);
+            //callee.Bridge.FileEnded += OnFileEnded;
 
             Debug.WriteLine($"{entry.Name}: Callee has picked up the phone");
             callee.Call.StateChanged += OnCallStateChangedAsync;
-            await audioGraphManager.StartAsync();
+            //await audioGraphManager.StartAsync();
             
             await NextTurn();
         }
@@ -160,7 +160,7 @@ namespace CallerCallee.Models
             }
         }
 
-        private async void OnCallStateChangedAsync(object sender, PropertyChangedEventArgs args)
+        private void OnCallStateChangedAsync(object sender, PropertyChangedEventArgs args)
         {
             var call = sender as CommunicationCall;
            
@@ -173,7 +173,6 @@ namespace CallerCallee.Models
                         {
                             Debug.WriteLine($"{entry.Name}: Call has been disconnected.");
                             call.StateChanged -= OnCallStateChangedAsync;
-                            await audioGraphManager.StopAsync();
                             OnCallEnded(new EventArgs());
                             call.Dispose();
                             caller.CallAgent.Dispose(); //otherwise doesnt liberate the credentials on the Azure side
@@ -199,22 +198,9 @@ namespace CallerCallee.Models
 
         private static StartCallOptions GetOutgoingCallOptions()
         {
-            var outgoingAudioProperties = new RawOutgoingAudioStreamProperties()
-            {
-                Format = AudioStreamFormat.Pcm16Bit,
-                SampleRate = AudioStreamSampleRate.Hz_48000,
-                ChannelMode = AudioStreamChannelMode.Stereo,
-                BufferDuration = AudioStreamBufferDuration.Ms20,
-            };
-            var outgoingAudioStreamOptions = new RawOutgoingAudioStreamOptions()
-            {
-                Properties = outgoingAudioProperties,
-            };
-
             var options = new StartCallOptions();
             var outgoingAudioOptions = new OutgoingAudioOptions();
-            var rawOutgoingAudioStream = new RawOutgoingAudioStream(outgoingAudioStreamOptions);
-            outgoingAudioOptions.Stream = rawOutgoingAudioStream;
+            outgoingAudioOptions.Stream = new LocalOutgoingAudioStream();
             options.OutgoingAudioOptions = outgoingAudioOptions;
 
             return options;
@@ -222,23 +208,8 @@ namespace CallerCallee.Models
 
         private static AcceptCallOptions GetIncomingCallOptions()
         {
-            var outgoingAudioProperties = new RawOutgoingAudioStreamProperties()
-            {
-                Format = AudioStreamFormat.Pcm16Bit,
-                SampleRate = AudioStreamSampleRate.Hz_48000,
-                ChannelMode = AudioStreamChannelMode.Stereo,
-                BufferDuration = AudioStreamBufferDuration.Ms20,
-            };
-            var outgoingAudioStreamOptions = new RawOutgoingAudioStreamOptions()
-            {
-                Properties = outgoingAudioProperties,
-            };
-
             var options = new AcceptCallOptions();
             var outgoingAudioOptions = new OutgoingAudioOptions();
-            var rawOutgoingAudioStream = new RawOutgoingAudioStream(outgoingAudioStreamOptions);
-            outgoingAudioOptions.Stream = rawOutgoingAudioStream;
-            //outgoingAudioOptions.Stream.StateChanged += AudioStreamStateChanged;
             options.OutgoingAudioOptions = outgoingAudioOptions;
 
             return options;
@@ -251,18 +222,18 @@ namespace CallerCallee.Models
             
             var turn = entry.Children.Dequeue();
             var file = await StorageFile.GetFileFromPathAsync(turn.FilePath);
-            var fileNode = await audioGraphManager.CreateFrameInputNodeFromFile(file);
-            var frameNode = audioGraphManager.CreateFrameOutputNodeFromInputNode(fileNode);
+            //var fileNode = await audioGraphManager.CreateFrameInputNodeFromFile(file);
+            //var frameNode = audioGraphManager.CreateFrameOutputNodeFromInputNode(fileNode);
 
             if (currentSpeaker.Equals(Speaker.Caller))
             {
                 Debug.WriteLine($"{entry.Name}: Caller speaking: {file.Name}");
-                caller.Bridge.StartPlayingAudio(frameNode, fileNode);
+                //caller.Bridge.StartPlayingAudio(frameNode, fileNode);
             }
             else
             {
                 Debug.WriteLine($"{entry.Name}: Callee speaking: {file.Name}");
-                callee.Bridge.StartPlayingAudio(frameNode, fileNode);
+                //callee.Bridge.StartPlayingAudio(frameNode, fileNode);
             }
             currentSpeaker = currentSpeaker.Equals(Speaker.Caller) ? Speaker.Callee : Speaker.Caller;
             

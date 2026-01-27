@@ -39,7 +39,8 @@ namespace CallerCallee
                 .AddSingleton<DatasetService>()
                 .AddSingleton<CallerCalleeService>()
                 .AddSingleton<SettingsService>()
-                //.AddScoped(audioGraphService, System.Type.)
+                .AddSingleton<FilePickerService>()
+                .AddSingleton<AudioPlayerService>()
 
                 // models
                 .AddTransient<MainPageViewModel>()
