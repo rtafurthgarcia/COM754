@@ -1,12 +1,9 @@
 ﻿using CallerCallee.Models;
-using ObservableCollections;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
 using static CallerCallee.Models.DatasetEntry;
 
@@ -44,7 +41,7 @@ namespace CallerCallee.Services
             var dir = new DirectoryInfo(entry.FilePath);
             if (dir.Exists)
             {
-                entry.Children = new ObservableQueue<DatasetEntry>(
+                entry.Children = new Queue<DatasetEntry>(
                     [.. new DirectoryInfo(entry.FilePath)
                     .GetFiles("*.wav")
                     .Select(f => new DatasetEntry
@@ -68,7 +65,7 @@ namespace CallerCallee.Services
             {
                 Name = columns[0],
                 Type = DisplayType.Call,
-                Kind = columns[2].Equals("0") ? DatasetEntryKind.NotVishing : DatasetEntryKind.Vishing,
+                Kind = columns[2].Equals("0") ? Flag.NotVishing : Flag.Vishing,
                 FilePath = Path.Combine(
                     parentOfParentPath.FullName,
                     columns[2].Equals("0") ? "nv" : "v",

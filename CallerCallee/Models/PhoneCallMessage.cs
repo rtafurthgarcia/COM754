@@ -7,13 +7,13 @@ using System.Threading.Tasks;
 
 namespace CallerCallee.Models
 {
-    public static class SimulationNotification
+    public static class PhoneCallMessage
     {
-        public class CallInitiated(DatasetEntry entry) : ValueChangedMessage<DatasetEntry>(entry)
+        public class CallInitiated(PhoneCall call) : ValueChangedMessage<PhoneCall>(call)
         {
         }
 
-        public class CallCompleted(DatasetEntry entry) : ValueChangedMessage<DatasetEntry>(entry)
+        public class CallEnded(PhoneCall call) : ValueChangedMessage<PhoneCall>(call)
         {
         }
 
@@ -21,7 +21,7 @@ namespace CallerCallee.Models
         {
         }
 
-        public class TurnBeingPlayed(ParentChildDataset parentChild) : ValueChangedMessage<ParentChildDataset>(parentChild)
+        public class NextTurnBeingPlayed(PhoneCall call) : ValueChangedMessage<PhoneCall>(call)
         {
         }
     }

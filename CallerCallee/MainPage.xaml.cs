@@ -17,15 +17,6 @@ namespace CallerCallee
             InitializeComponent();
 
             DataContext = Ioc.Default.GetRequiredService<MainPageViewModel>();
-            ViewModel.CurrentTurns.CollectionChanged += CurrentTurnsCollectionChanged;
-        }
-
-        private void CurrentTurnsCollectionChanged(in ObservableCollections.NotifyCollectionChangedEventArgs<System.Collections.Generic.KeyValuePair<Models.DatasetEntry, Models.DatasetEntry>> e)
-        {
-            foreach (var item in e.NewItems)
-            {
-                MainTreeView.SelectedItems.Add(item);
-            }
         }
     }
 }

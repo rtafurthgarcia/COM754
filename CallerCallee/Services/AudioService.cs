@@ -35,7 +35,7 @@ namespace CallerCallee.Services
             }
         }
 
-        public AudioDeviceDetails FindEquivalent(int deviceNumber, List<AudioDeviceDetails> possibleDevices)
+        public static AudioDeviceDetails FindEquivalent(int deviceNumber, List<AudioDeviceDetails> possibleDevices)
         {
             var possibleName = WaveOut.GetCapabilities(deviceNumber).ProductName.Substring(0, 7);
 

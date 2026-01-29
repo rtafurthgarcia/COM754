@@ -8,8 +8,8 @@ using CommunityToolkit.Mvvm.Messaging;
 using Microsoft.UI;
 using Microsoft.Windows.AppNotifications;
 using Microsoft.Windows.AppNotifications.Builder;
-using ObservableCollections;
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Threading.Tasks;
@@ -18,8 +18,7 @@ namespace CallerCallee.ViewModels
 {
     public partial class MainPageViewModel: ObservableObject
     {
-        public ObservableCollection<DatasetEntry> DataSource { get; } = []; 
-        public ObservableDictionary<DatasetEntry, DatasetEntry> CurrentTurns { get; } = [];
+        public ObservableCollection<PhoneCall> DataSource { get; } = [];
 
         [ObservableProperty]
         [NotifyCanExecuteChangedFor(nameof(RunSimulationCommand))]
@@ -54,22 +53,22 @@ namespace CallerCallee.ViewModels
                 AutorunEverythingCommand.Execute(null);
             }
 
-            WeakReferenceMessenger.Default.Register<SimulationNotification.CallInitiated>(this, (r, m) => DataSource.Add(m.Value));
-            WeakReferenceMessenger.Default.Register<SimulationNotification.TurnBeingPlayed>(this, (r, m) => CurrentTurns[m.Value.Parent] = m.Value.Child);
-            WeakReferenceMessenger.Default.Register<SimulationNotification.CallCompleted>(this, (r, m) => {
-                if (DataSource.Contains(m.Value)) {
-                    DataSource.Remove(m.Value);
-                }
-                if (CurrentTurns.ContainsKey(m.Value))
-                {
-                    CurrentTurns.Remove(m.Value);
-                }
+                WeakReferenceMessenger.Default.Register<PhoneCallMessage.CallInitiated>(this, (r, m) => DataSource.Add(m.Value));
+            //WeakReferenceMessenger.Default.Register<PhoneCallMessage.NextTurnBeingPlayed>(this, (r, m));
+            WeakReferenceMessenger.Default.Register<PhoneCallMessage.CallEnded>(this, (r, m) => {
+                DataSource.Remove(m.Value);
+                Progression += 1;
             });
         }
 
         private bool CanRunSimulation()
         {
-            return Credential is not null && LoadedDatasetMessage is not null;
+            return Credential is not null && LoadedDatasetMessage is not null && !IsBusy;
+        }
+
+        private bool IsNotBusy()
+        {
+            return !IsBusy;
         }
 
         [RelayCommand]
@@ -78,7 +77,7 @@ namespace CallerCallee.ViewModels
             settingsService.SetValue("autorun", Autorun);
         }
 
-        [RelayCommand]
+        [RelayCommand(CanExecute = nameof(IsNotBusy))]
         public async Task ImportDatasetAsync(WindowId id)
         {
             var file = await FilePickerService.PickFileDialogAsync(id);
@@ -94,11 +93,13 @@ namespace CallerCallee.ViewModels
             DatasetCount = datasetService.Dataset is null ? 0 : datasetService.Dataset.Count;
             settingsService.SetValue("datasetpath", file.Path);
         }
+
         [RelayCommand(CanExecute = nameof(CanRunSimulation))]
         public async Task RunSimulation()
         {
             try
             {
+                Progression = 0;
                 await callerCalleeService.StartSimulation(Credential, 2);
             } 
             catch (Exception e)
@@ -113,7 +114,7 @@ namespace CallerCallee.ViewModels
             }
         }
 
-        [RelayCommand]
+        [RelayCommand(CanExecute = nameof(IsNotBusy))]
         public async Task Authenticate() 
         {
             try

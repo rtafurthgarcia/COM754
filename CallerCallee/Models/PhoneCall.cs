@@ -3,15 +3,12 @@ using Azure.Communication.Identity;
 using CallerCallee.Services;
 using CommunityToolkit.Mvvm.DependencyInjection;
 using CommunityToolkit.Mvvm.Messaging;
-using NAudio.Wave;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
-using System.Net.Quic;
 using System.Threading.Tasks;
-using Windows.Storage;
-using static CallerCallee.Models.SimulationNotification;
+using static CallerCallee.Models.PhoneCallMessage;
 
 namespace CallerCallee.Models
 {
@@ -35,7 +32,7 @@ namespace CallerCallee.Models
             private set;
         }
 
-        enum Speaker
+        public enum Speaker
         {
             Caller,
             Callee
@@ -71,10 +68,11 @@ namespace CallerCallee.Models
         }
 
         public EventHandler OnEndOfCall;
+        private AudioService audioService = Ioc.Default.GetRequiredService<AudioService>();
 
         public async Task DialUp()
         {
-            WeakReferenceMessenger.Default.Send(new CallInitiated(entry));
+            WeakReferenceMessenger.Default.Send(new CallInitiated(this));
             var callerTokenCredential = new CallTokenCredential(caller.IdentifierAndToken.AccessToken.Token, callTokenRefreshOptions);
             var calleeTokenCredential = new CallTokenCredential(callee.IdentifierAndToken.AccessToken.Token, callTokenRefreshOptions);
 
@@ -107,18 +105,12 @@ namespace CallerCallee.Models
             );
             caller.Call.StateChanged += OnCallStateChangedAsync;
             Debug.WriteLine($"{entry.Name}: Caller is phoning callee");
-
-
-
-            //caller.Bridge = new AudioGraphAcsBridge(caller.Call.ActiveOutgoingAudioStream as RawOutgoingAudioStream);
-
-            //caller.Bridge.FileEnded += OnFileEnded;
-            //await audioInitTask;
         }
 
         protected virtual void OnCallEnded(EventArgs args)
         {
             OnEndOfCall?.Invoke(this, args);
+            WeakReferenceMessenger.Default.Send(new CallEnded(this));
         }
 
         private async void OnIncomingCallAsync(object sender, IncomingCallReceivedEventArgs args)
@@ -134,7 +126,7 @@ namespace CallerCallee.Models
 
         private void OnPlaybackStopped(object sender, EventArgs e)
         {
-            if (entry.Children is not null)
+            if (entry.Children.Count > 0)
             {
                 NextTurn();
             }
@@ -184,7 +176,7 @@ namespace CallerCallee.Models
         private async Task<StartCallOptions> SetupOutgoingCallOptions()
         {
             var deviceManager = await caller.CallClient.GetDeviceManagerAsync();
-            deviceManager.SetMicrophone(Ioc.Default.GetRequiredService<AudioService>().FindEquivalent(caller.AudioDeviceNumber, deviceManager.Microphones.ToList()));
+            deviceManager.SetMicrophone(AudioService.FindEquivalent(caller.AudioDeviceNumber, deviceManager.Microphones.ToList()));
             var microphoneStream = new LocalOutgoingAudioStream();
 
             var options = new StartCallOptions()
@@ -208,7 +200,7 @@ namespace CallerCallee.Models
         private async Task<AcceptCallOptions> SetupIncomingCallOptions()
         {
             var deviceManager = await callee.CallClient.GetDeviceManagerAsync();
-            deviceManager.SetMicrophone(Ioc.Default.GetRequiredService<AudioService>().FindEquivalent(callee.AudioDeviceNumber, deviceManager.Microphones.ToList()));
+            deviceManager.SetMicrophone(AudioService.FindEquivalent(callee.AudioDeviceNumber, deviceManager.Microphones.ToList()));
             var microphoneStream = new LocalOutgoingAudioStream();
 
             var options = new AcceptCallOptions()
@@ -238,12 +230,12 @@ namespace CallerCallee.Models
 
             if (currentSpeaker.Equals(Speaker.Caller))
             {
-                var duration = Ioc.Default.GetRequiredService<AudioService>().PlayAudioFile(caller.AudioDeviceNumber, turn.FilePath, OnPlaybackStopped);
+                var duration = audioService.PlayAudioFile(caller.AudioDeviceNumber, turn.FilePath, OnPlaybackStopped);
                 Debug.WriteLine($"{entry.Name}: Caller speaking: {turn.Name}, for {(int)duration.TotalSeconds}s");
             }
             else
             {
-                var duration = Ioc.Default.GetRequiredService<AudioService>().PlayAudioFile(callee.AudioDeviceNumber, turn.FilePath, OnPlaybackStopped);
+                var duration = audioService.PlayAudioFile(callee.AudioDeviceNumber, turn.FilePath, OnPlaybackStopped);
                 Debug.WriteLine($"{entry.Name}: Callee speaking: {turn.Name}, for {(int)duration.TotalSeconds}s");
             }
             currentSpeaker = currentSpeaker.Equals(Speaker.Caller) ? Speaker.Callee : Speaker.Caller;
