@@ -36,7 +36,7 @@ namespace CallerCallee.ViewModels
 
         [ObservableProperty]
         [NotifyCanExecuteChangedFor(nameof(RunSimulationCommand))]
-        [NotifyPropertyChangedFor(nameof(IsBusy))]
+        //[NotifyPropertyChangedFor(nameof(IsBusy))]
         public partial DefaultAzureCredential Credential { get; set; }
 
         public bool IsBusy => RunSimulationCommand.IsRunning || AuthenticateCommand.IsRunning || ImportDatasetCommand.IsRunning || AutorunEverythingCommand.IsRunning;
