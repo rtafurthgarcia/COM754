@@ -4,6 +4,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Numerics;
 using System.Threading.Tasks;
 using static CallerCallee.Models.DatasetEntry;
 
@@ -14,6 +15,12 @@ namespace CallerCallee.Services
         private readonly ConcurrentQueue<DatasetEntry> dataset = new();
         public ConcurrentQueue<DatasetEntry> Dataset { 
             get { return dataset; } 
+        }
+
+        private int total = 0;
+        public int Total
+        {
+            get { return total; }
         }
 
         public async Task LoadDatasetEntries(string sourcePath)
@@ -27,11 +34,12 @@ namespace CallerCallee.Services
                 .Where(row => row.Length > 3)
                 .Select(s => ParseRow(s, sourcePath))
                 .Select(FindTurnsOfConversation)
+                .Where(d => d.Children is not null)
                 .ToList()
                 .ForEach(dataset.Enqueue);
         }
 
-        internal static DatasetEntry FindTurnsOfConversation(DatasetEntry entry)
+        internal DatasetEntry FindTurnsOfConversation(DatasetEntry entry)
         {
             if (entry.FilePath is null)
             {
@@ -52,6 +60,8 @@ namespace CallerCallee.Services
                         FilePath = f.FullName,
                         Kind = entry.Kind,
                     })]);
+
+                total += entry.Children.Count;
             }
 
             return entry;

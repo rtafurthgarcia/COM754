@@ -28,6 +28,7 @@ namespace CallerCallee.ViewModels
         public partial int? DatasetCount { get; set; }
 
         [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(DataSource))]
         public partial int Progression { get; set; } = 0;
 
         [ObservableProperty]
@@ -75,7 +76,7 @@ namespace CallerCallee.ViewModels
             }
 
             await datasetService.LoadDatasetEntries(file.Path);
-            DatasetCount = datasetService.Dataset is null ? 0 : datasetService.Dataset.Count;
+            DatasetCount = datasetService.Dataset is null ? 0 : datasetService.Total;
             settingsService.SetValue("datasetpath", file.Path);
         }
 
@@ -85,7 +86,7 @@ namespace CallerCallee.ViewModels
             try
             {
                 Progression = 0;
-                await callerCalleeService.StartSimulation(Credential, 2);
+                await callerCalleeService.StartSimulation(Credential, 1);
             } 
             catch (Exception e)
             {
@@ -147,12 +148,12 @@ namespace CallerCallee.ViewModels
         public void Receive(CallEnded message)
         {
             DataSource.Remove(message.Value);
-            Progression += 1;
         }
 
         public void Receive(CallInterrupted message)
         {
-            throw new NotImplementedException();
+            OnPropertyChanged(nameof(Progression));
+            Progression += 1;
         }
     }
 }

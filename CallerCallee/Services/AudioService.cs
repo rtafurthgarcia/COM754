@@ -3,6 +3,7 @@ using NAudio.Wave;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Text.RegularExpressions;
 using Windows.Security.Authentication.Web.Core;
@@ -63,6 +64,8 @@ namespace CallerCallee.Services
 
         public TimeSpan PlayAudioFile(int deviceToPlayOn, string audioFilePath, EventHandler<StoppedEventArgs> eventHandler)
         {
+            Debug.WriteLine($"Device {WaveOut.GetCapabilities(deviceToPlayOn).ProductName } used for playing.");
+
             var outputDevice = new WaveOutEvent() { DeviceNumber = deviceToPlayOn };
             outputDevice.PlaybackStopped += eventHandler;
             var audioFile = new AudioFileReader(@audioFilePath);

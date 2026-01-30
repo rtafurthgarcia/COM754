@@ -3,6 +3,7 @@ using Azure.Communication.Identity;
 using CallerCallee.Services;
 using CommunityToolkit.Mvvm.DependencyInjection;
 using CommunityToolkit.Mvvm.Messaging;
+using Microsoft.CognitiveServices.Speech.Audio;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -38,12 +39,12 @@ namespace CallerCallee.Models
             Callee
         }
 
-       public DatasetEntry CurrentTurn
+        public DatasetEntry? CurrentTurn
         {
-            get => Entry.Children.Peek();
+            get => Entry.Children.Count > 0 ? Entry.Children.Peek() : null;
         }
 
-        private Speaker currentSpeaker;
+        private Speaker currentSpeaker = Speaker.Caller;
         private readonly CallTokenRefreshOptions callTokenRefreshOptions = new(true);
         private readonly CallClientOptions callClientOptions = new()
         {
@@ -54,8 +55,6 @@ namespace CallerCallee.Models
                 Tags = new List<string>(["Calling", "ACS", "Windows"])
             }
         };
-
-        public readonly DateTime StartTime = DateTime.Now;
 
         public PhoneCall(
             CommunicationUserIdentifierAndToken callerIdAndToken, 
@@ -112,6 +111,14 @@ namespace CallerCallee.Models
             Debug.WriteLine($"{entry.Name}: Caller is phoning callee");
         }
 
+        private void OnCaptionsReceived(object sender, CommunicationCaptionsReceivedEventArgs e)
+        {
+            if (e.CaptionsResultKind.Equals(CaptionsResultKind.Final))
+            {
+                Debug.WriteLine($"{e.Speaker.DisplayName} said: {e.SpokenText}");
+            }
+        }
+
         protected virtual void OnCallEnded(EventArgs args)
         {
             OnEndOfCall?.Invoke(this, args);
@@ -122,7 +129,7 @@ namespace CallerCallee.Models
         {
             var incomingCall = args.IncomingCall;
             callee.Call = await incomingCall.AcceptAsync(await SetupIncomingCallOptions());
-            TranscriptionCallFeature transcriptionFeature = callee.Call.Features.Transcription;
+            //callee.Call.
 
             Debug.WriteLine($"{entry.Name}: Callee has picked up the phone");
             callee.Call.StateChanged += OnCallStateChangedAsync;
@@ -135,6 +142,10 @@ namespace CallerCallee.Models
             if (entry.Children.Count > 0)
             {
                 NextTurn();
+            }
+            else
+            {
+                Debug.WriteLine($"{entry.Name}: Conversation over.");
             }
         }
 
@@ -150,6 +161,19 @@ namespace CallerCallee.Models
                     case CallState.Connected:
                     {
                         await call.StartAudioAsync(call.ActiveOutgoingAudioStream);
+                            //var captions = await caller.Call.Features.Captions.GetCaptionsAsync() as CommunicationCaptions;
+                            //await captions.StartCaptionsAsync(new StartCaptionsOptions() { SpokenLanguage = "en-us" });
+                            //captions.CaptionsReceived += OnCaptionsReceived;
+
+                        var captionsCallFeature = call.Features.Captions;
+                        var callCaptions = await captionsCallFeature.GetCaptionsAsync();
+                        if (callCaptions.CaptionsKind == CaptionsKind.CommunicationCaptions)
+                        {
+                            var communicationCaptions = callCaptions as CommunicationCaptions;
+                            await communicationCaptions.StartCaptionsAsync(new StartCaptionsOptions() { SpokenLanguage = "en-us" });
+                            communicationCaptions.CaptionsReceived += OnCaptionsReceived;
+                        }
+
                         break;
                     }
                     case CallState.Disconnected:
@@ -182,21 +206,18 @@ namespace CallerCallee.Models
         private async Task<StartCallOptions> SetupOutgoingCallOptions()
         {
             var deviceManager = await caller.CallClient.GetDeviceManagerAsync();
-            deviceManager.SetMicrophone(AudioService.FindEquivalent(caller.AudioDeviceNumber, deviceManager.Microphones.ToList()));
-            var microphoneStream = new LocalOutgoingAudioStream();
+            deviceManager.SetMicrophone(AudioService.FindEquivalent(caller.AudioDeviceNumber, [.. deviceManager.Microphones]));
+            var outgoingStream = new LocalOutgoingAudioStream();
 
             var options = new StartCallOptions()
             {
                 OutgoingAudioOptions = new OutgoingAudioOptions()
                 {
                     IsMuted = false,
-                    Stream = microphoneStream,
+                    Stream = outgoingStream,
                     Filters = new OutgoingAudioFilters()
                     {
-                        AnalogAutomaticGainControlEnabled = true,
-                        AcousticEchoCancellationEnabled = true,
-                        NoiseSuppressionMode = NoiseSuppressionMode.High
-                    }
+                    },
                 }
             };
 
@@ -206,33 +227,30 @@ namespace CallerCallee.Models
         private async Task<AcceptCallOptions> SetupIncomingCallOptions()
         {
             var deviceManager = await callee.CallClient.GetDeviceManagerAsync();
-            deviceManager.SetMicrophone(AudioService.FindEquivalent(callee.AudioDeviceNumber, deviceManager.Microphones.ToList()));
-            var microphoneStream = new LocalOutgoingAudioStream();
+            deviceManager.SetMicrophone(AudioService.FindEquivalent(callee.AudioDeviceNumber, [.. deviceManager.Microphones]));
+            var incomingStream = new LocalOutgoingAudioStream();
 
             var options = new AcceptCallOptions()
             {
                 OutgoingAudioOptions = new OutgoingAudioOptions()
                 {
                     IsMuted = false,
-                    Stream = microphoneStream,
+                    Stream = incomingStream,
                     Filters = new OutgoingAudioFilters()
                     {
-                        AnalogAutomaticGainControlEnabled = true,
-                        AcousticEchoCancellationEnabled = true,
-                        NoiseSuppressionMode = NoiseSuppressionMode.High
                     }
-                }
+                },
             };
 
             return options;
         }
 
         private void NextTurn()
-        {            
-            currentSpeaker = Speaker.Caller;
-            Debug.WriteLine($"{entry.Name}: Conversation is starting");
-            
+        {                        
             var turn = entry.Children.Dequeue();
+            WeakReferenceMessenger.Default.Send(
+                new NextTurnBeingPlayed(this)
+            );
 
             if (currentSpeaker.Equals(Speaker.Caller))
             {
