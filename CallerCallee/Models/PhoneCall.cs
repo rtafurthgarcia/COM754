@@ -38,6 +38,11 @@ namespace CallerCallee.Models
             Callee
         }
 
+       public DatasetEntry CurrentTurn
+        {
+            get => Entry.Children.Peek();
+        }
+
         private Speaker currentSpeaker;
         private readonly CallTokenRefreshOptions callTokenRefreshOptions = new(true);
         private readonly CallClientOptions callClientOptions = new()
@@ -117,6 +122,7 @@ namespace CallerCallee.Models
         {
             var incomingCall = args.IncomingCall;
             callee.Call = await incomingCall.AcceptAsync(await SetupIncomingCallOptions());
+            TranscriptionCallFeature transcriptionFeature = callee.Call.Features.Transcription;
 
             Debug.WriteLine($"{entry.Name}: Callee has picked up the phone");
             callee.Call.StateChanged += OnCallStateChangedAsync;

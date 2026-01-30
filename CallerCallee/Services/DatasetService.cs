@@ -44,6 +44,7 @@ namespace CallerCallee.Services
                 entry.Children = new Queue<DatasetEntry>(
                     [.. new DirectoryInfo(entry.FilePath)
                     .GetFiles("*.wav")
+                    .OrderBy(f => int.Parse(f.Name.Replace(".wav", "")))
                     .Select(f => new DatasetEntry
                     {
                         Name = f.Name,

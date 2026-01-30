@@ -9,20 +9,19 @@ using Microsoft.UI;
 using Microsoft.Windows.AppNotifications;
 using Microsoft.Windows.AppNotifications.Builder;
 using System;
-using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Threading.Tasks;
+using static CallerCallee.Models.PhoneCallMessage;
 
 namespace CallerCallee.ViewModels
 {
-    public partial class MainPageViewModel: ObservableObject
+    public partial class MainPageViewModel : ObservableRecipient, IRecipient<CallInitiated>, IRecipient<CallEnded>, IRecipient<CallInterrupted>
     {
         public ObservableCollection<PhoneCall> DataSource { get; } = [];
 
         [ObservableProperty]
         [NotifyCanExecuteChangedFor(nameof(RunSimulationCommand))]
-        [NotifyPropertyChangedFor(nameof(IsBusy))]
         public partial string LoadedDatasetMessage { get; set; }
 
         [ObservableProperty]
@@ -36,10 +35,7 @@ namespace CallerCallee.ViewModels
 
         [ObservableProperty]
         [NotifyCanExecuteChangedFor(nameof(RunSimulationCommand))]
-        //[NotifyPropertyChangedFor(nameof(IsBusy))]
         public partial DefaultAzureCredential Credential { get; set; }
-
-        public bool IsBusy => RunSimulationCommand.IsRunning || AuthenticateCommand.IsRunning || ImportDatasetCommand.IsRunning || AutorunEverythingCommand.IsRunning;
 
         private readonly DatasetService datasetService = Ioc.Default.GetRequiredService<DatasetService>();
         private readonly CallerCalleeService callerCalleeService = Ioc.Default.GetRequiredService<CallerCalleeService>();
@@ -47,28 +43,17 @@ namespace CallerCallee.ViewModels
 
         public MainPageViewModel()
         {
+            IsActive = true;
             Autorun = settingsService.GetValue<bool>("autorun");
             if (Autorun)
             {
-                AutorunEverythingCommand.Execute(null);
+                AutorunEverythingCommand.ExecuteAsync(null);
             }
-
-                WeakReferenceMessenger.Default.Register<PhoneCallMessage.CallInitiated>(this, (r, m) => DataSource.Add(m.Value));
-            //WeakReferenceMessenger.Default.Register<PhoneCallMessage.NextTurnBeingPlayed>(this, (r, m));
-            WeakReferenceMessenger.Default.Register<PhoneCallMessage.CallEnded>(this, (r, m) => {
-                DataSource.Remove(m.Value);
-                Progression += 1;
-            });
         }
 
         private bool CanRunSimulation()
         {
-            return Credential is not null && LoadedDatasetMessage is not null && !IsBusy;
-        }
-
-        private bool IsNotBusy()
-        {
-            return !IsBusy;
+            return Credential is not null && LoadedDatasetMessage is not null;
         }
 
         [RelayCommand]
@@ -77,7 +62,7 @@ namespace CallerCallee.ViewModels
             settingsService.SetValue("autorun", Autorun);
         }
 
-        [RelayCommand(CanExecute = nameof(IsNotBusy))]
+        [RelayCommand]
         public async Task ImportDatasetAsync(WindowId id)
         {
             var file = await FilePickerService.PickFileDialogAsync(id);
@@ -114,7 +99,7 @@ namespace CallerCallee.ViewModels
             }
         }
 
-        [RelayCommand(CanExecute = nameof(IsNotBusy))]
+        [RelayCommand]
         public async Task Authenticate() 
         {
             try
@@ -142,8 +127,8 @@ namespace CallerCallee.ViewModels
             {
                 await datasetService.LoadDatasetEntries(path);
                 DatasetCount = datasetService.Dataset is null ? 0 : datasetService.Dataset.Count;
-                await Authenticate();
-                await RunSimulation();
+                await AuthenticateCommand.ExecuteAsync(null);
+                await RunSimulationCommand.ExecuteAsync(null);
             }
             catch (Exception e)
             {
@@ -155,6 +140,19 @@ namespace CallerCallee.ViewModels
 
                 AppNotificationManager.Default.Show(notification);
             }
+        }
+
+        public void Receive(CallInitiated message) => DataSource.Add(message.Value);
+
+        public void Receive(CallEnded message)
+        {
+            DataSource.Remove(message.Value);
+            Progression += 1;
+        }
+
+        public void Receive(CallInterrupted message)
+        {
+            throw new NotImplementedException();
         }
     }
 }
