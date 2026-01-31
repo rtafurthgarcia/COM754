@@ -48,23 +48,18 @@ namespace CallerCallee.Services
             return result;
         }
 
-        public int GetAvailableDevice()
+        public bool GetAvailableDevice(out int? deviceNunber)
         {
-            var succeeded = availableDevices.TryPop(out int deviceNumber);
-            if (succeeded)
-            {
-                return deviceNumber;
-            }
-            else
-            {
-                return -2; // -1 meaning "default device", which isnt what we want
-                // -2 meaning there is available device at the moment
-            }
+            var succeeded = availableDevices.TryPop(out int newDeviceNumber);
+
+            deviceNunber = newDeviceNumber;
+
+            return succeeded;
         }
 
         public TimeSpan PlayAudioFile(int deviceToPlayOn, string audioFilePath, EventHandler<StoppedEventArgs> eventHandler)
         {
-            Debug.WriteLine($"Device {WaveOut.GetCapabilities(deviceToPlayOn).ProductName } used for playing.");
+            //Debug.WriteLine($"Device {WaveOut.GetCapabilities(deviceToPlayOn).ProductName } used for playing.");
 
             var outputDevice = new WaveOutEvent() { DeviceNumber = deviceToPlayOn };
             outputDevice.PlaybackStopped += eventHandler;
