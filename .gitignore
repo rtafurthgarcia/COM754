@@ -216,5 +216,8 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# Dev tunnel
-.devtunnel.json
+CallerCallee/.vs/
+CallerCallee/obj/
+CallerCallee/bin/
+
+.vscode

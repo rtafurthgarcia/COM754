@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "CallerCallee (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "CallerCallee (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}
