@@ -20,13 +20,9 @@ namespace CallerCallee.Services
     public sealed class CallerCalleeService
     {
         private static readonly string CS_ENDPOINT_NAME = "com754-cs-endpoint";
-        private static readonly string SS_ENDPOINT_NAME = "com754-ss-endpoint";
-        private static readonly string SS_KEY_NAME = "com754-ss-key";
 
         private string keyVaultName;
         private KeyVaultSecret csEndpoint;
-        private KeyVaultSecret ssEndpoint;
-        private KeyVaultSecret ssKey;
 
         private CommunicationIdentityClient communicationIdentity;
         private ConcurrentStack<CommunicationUserIdentifierAndToken> availableCredentials;
@@ -41,11 +37,7 @@ namespace CallerCallee.Services
 
             var kvClient = new SecretClient(new Uri(kvUri), new DefaultAzureCredential());
             csEndpoint = await kvClient.GetSecretAsync(CS_ENDPOINT_NAME);
-            ssEndpoint = await kvClient.GetSecretAsync(SS_ENDPOINT_NAME);
-            ssKey = await kvClient.GetSecretAsync(SS_KEY_NAME);
-
             communicationIdentity = new CommunicationIdentityClient(new Uri(csEndpoint.Value), credential);
-
 
             return credential;
         }
@@ -86,49 +78,81 @@ namespace CallerCallee.Services
             semaphore = new SemaphoreSlim(maxAmountOfParallelCalls, maxAmountOfParallelCalls);
             var dataset = Ioc.Default.GetRequiredService<DatasetService>().Dataset;
             Debug.WriteLine($"Running simulation on {dataset.Count} calls.");
-            do
+
+            DatasetEntry callEntry = null;
+            int? callerDevice = null;
+            int? calleeDevice = null;
+            CommunicationUserIdentifierAndToken caller = null;
+            CommunicationUserIdentifierAndToken callee = null;
+
+            while (!dataset.IsEmpty) 
             {
-                while (dataset.TryDequeue(out DatasetEntry callEntry)) 
+                if (callEntry is null)
+                {
+                    if (! dataset.TryDequeue(out callEntry))
+                        continue;
+                }
+
+                if (callerDevice is null)
+                {
+                    if (!Ioc.Default.GetRequiredService<AudioService>().GetAvailableDevice(out callerDevice))
+                        continue;
+                }
+
+                if (calleeDevice is null)
+                {
+                    if (!Ioc.Default.GetRequiredService<AudioService>().GetAvailableDevice(out calleeDevice))
+                        continue;
+                }
+
+                if (caller is null)
+                {
+                    if (!availableCredentials.TryPop(out caller))
+                        continue;
+                }
+
+                if (callee is null)
+                {
+                    if (!availableCredentials.TryPop(out callee))
+                        continue;
+                }
+
+                try
                 {
                     await semaphore.WaitAsync();
-                    var popOk1 = availableCredentials.TryPop(out CommunicationUserIdentifierAndToken caller);
-                    var popOk2 = availableCredentials.TryPop(out CommunicationUserIdentifierAndToken callee);
-                    int callerDevice = Ioc.Default.GetRequiredService<AudioService>().GetAvailableDevice();
-                    int calleeDevice = Ioc.Default.GetRequiredService<AudioService>().GetAvailableDevice();
 
-                    try
-                    {
-                        if (popOk1  && popOk2)
-                        {
-                            var phoneCall = new Models.PhoneCall(
-                                caller, 
-                                callee, 
-                                callerDevice, 
-                                calleeDevice, 
-                                callEntry
-                            );
-                            phoneCall.OnEndOfCall += CallEnded;
-                            await phoneCall.DialUp();
-                        } 
-                        else
-                        {
-                            semaphore.Release();
-                            Ioc.Default.GetRequiredService<AudioService>().TryFreeDevice(calleeDevice);
-                            Ioc.Default.GetRequiredService<AudioService>().TryFreeDevice(callerDevice);
-                        }
-                    }
-                    catch (Exception e)
-                    {
-                        Debug.WriteLine($"{callEntry.Name}: Error during call init: {e}");
-                        semaphore.Release();
-                        availableCredentials.Push(caller);
-                        availableCredentials.Push(callee);
-                        Ioc.Default.GetRequiredService<AudioService>().TryFreeDevice(calleeDevice);
-                        Ioc.Default.GetRequiredService<AudioService>().TryFreeDevice(callerDevice);
-                    }
+                    var phoneCall = new Models.PhoneCall(
+                        caller,
+                        callee,
+                        (int)callerDevice,
+                        (int)calleeDevice,
+                        callEntry
+                    );
+                    phoneCall.OnEndOfCall += CallEnded;
+                    await phoneCall.DialUp();
+                }
+                catch (Exception e)
+                {
+                    Debug.WriteLine($"{callEntry.Name}: Error during call init: {e}");
+                    semaphore.Release();
+
+                    availableCredentials.Push(caller);
+                    availableCredentials.Push(callee);
+
+                    Ioc.Default.GetRequiredService<AudioService>().TryFreeDevice((int)calleeDevice);
+                    Ioc.Default.GetRequiredService<AudioService>().TryFreeDevice((int)callerDevice);
+                } 
+                finally
+                {
+                    caller = null;
+                    callee = null;
+                    callerDevice = null;
+                    calleeDevice = null;
+                    callEntry = null;
                 }
             }
-            while (!dataset.IsEmpty && availableCredentials.Count >= 2);
+
+            Debug.WriteLine("End of process");
         }
 
         private void CallEnded(Object source, EventArgs e)
@@ -137,7 +161,7 @@ namespace CallerCallee.Services
             {
                 phoneCall.OnEndOfCall -= CallEnded;
                 semaphore.Release();
-                Debug.WriteLine($"{phoneCall.Entry.Name}: Call ended after {(int)(DateTime.Now - phoneCall.caller.Call.StartTime).TotalSeconds} seconds");
+                Debug.WriteLine($"{phoneCall.Entry.Name}: Call ended after {(int)(DateTime.Now - phoneCall.caller.Call.StartTime).TotalSeconds}s.");
 
                 availableCredentials.Push(phoneCall.callee.IdentifierAndToken);
                 availableCredentials.Push(phoneCall.caller.IdentifierAndToken);

@@ -1,19 +1,18 @@
-#from concurrent.futures import ThreadPoolExecutor
-from operator import truediv
+import asyncio
+import contextlib
 import os 
-import csv
 from azure.keyvault.secrets import SecretClient
 from azure.identity import DefaultAzureCredential
-from azure.core.credentials import AccessToken
-from azure.communication.callautomation import CallAutomationClient, CallConnectionClient, TranscriptionOptions
+from azure.communication.callautomation import CallAutomationClient, TranscriptionOptions
 from azure.communication.identity import CommunicationIdentityClient
 from azure.servicebus.aio import ServiceBusClient
 from azure.core.exceptions import ServiceResponseError
-from common import CallStarted, IncomingCall, deserialise_event
-import asyncio
+from common import CallStarted, deserialise_event
+import logging
+from aiohttp import WSCloseCode, web
+import weakref
 
-class CallerCallee:
-    PORT: int = 8081
+class ServiceBusListener:
     CS_KEY_NAME: str = "com754-cs-key"
     CS_ENDPOINT_NAME: str = "com754-cs-endpoint"
     SBUS_ENDPOINT_NAME: str = "com754-sbus-endpoint"
@@ -32,7 +31,7 @@ class CallerCallee:
         self.credential = DefaultAzureCredential()
         kv_client = SecretClient(vault_url=keyvault_uri, credential=self.credential)
 
-        print(f"Retrieving your secrets from {keyvault_name}.")
+        logging.warning(f"Retrieving your secrets from {keyvault_name}.")
 
         self.cs_endpoint = kv_client.get_secret(self.CS_ENDPOINT_NAME).value or ""
         self.cs_key = kv_client.get_secret(self.CS_KEY_NAME).value or ""
@@ -43,7 +42,7 @@ class CallerCallee:
         self.ai_endpoint = kv_client.get_secret(self.AI_ENDPOINT_NAME).value or ""
 
         self._call_identity_client = CommunicationIdentityClient.from_connection_string(
-            conn_str="endpoint={}/;accesskey={}".format(self.cs_endpoint, self.cs_key)
+            conn_str=f"endpoint={self.cs_endpoint}/;accesskey={self.cs_key}"
         )
 
         self._call_automation_client = CallAutomationClient(credential=self.credential, endpoint=self.cs_endpoint)
@@ -52,48 +51,88 @@ class CallerCallee:
     def join_call(self, call: CallStarted):
         accepted_call = self._call_automation_client.connect_call(
             group_call_id=call.group_id,
-            callback_url=f"https://{self.local_endpoint}calls",
+            callback_url=f"https://{self.local_endpoint}/calls",
             transcription=TranscriptionOptions(
-                transport_url="wss://{self.local_endpoint}transcription",
-                transport_type="WEBSOCKET",
+                transport_url=f"wss://{self.local_endpoint}/transcriptions",
+                transport_type="websocket",
                 locale="en-US",
                 start_transcription=True,
-                speech_recognition_model_endpoint_id = "gpt-4o-mini-transcribe"
+                enable_intermediate_results=False,
+                speech_recognition_model_endpoint_id="azureml://registries/azure-openai/models/gpt-4o-mini-transcribe/versions/2025-12-15"
             ),
             cognitive_services_endpoint=self.ai_endpoint)
 
         if (accepted_call.call_connection_id is None):
+            logging.error("No call connection ID found")
             raise ServiceResponseError("No call connection ID found")
 
         self._ongoing_calls.append(self._call_automation_client.get_call_connection(accepted_call.call_connection_id))
     
-    async def start(self):
+    async def start_bus_listener(self):
         self._call_identity_client.create_user()
-
+        print(f"Listening for group calls on {self.local_endpoint}")
         async with ServiceBusClient.from_connection_string(
             conn_str=self.sbus_connection_string
         ) as servicebus_client:
             async with servicebus_client:
                 # get the Queue Receiver object for the queue
-                receiver = servicebus_client.get_queue_receiver(queue_name=self.QUEUE, )
+                receiver = servicebus_client.get_queue_receiver(queue_name=self.QUEUE)
                 async with receiver:
                     while(True):
                         for message in await receiver.receive_messages():   
                             try:     
                                 await self.process_message(receiver, message)
                             except:
-                                print(f"Error with {message.message_id}")
+                                logging.warning(f"Error with {message.message_id}")
 
     async def process_message(self, receiver, message):
         event = deserialise_event(message.body)
 
         if isinstance(event, CallStarted):
+            logging.warning(f"Joining call {event.group_id}")
             self.join_call(event)
 
         await receiver.complete_message(message)
 
+async def background_tasks(app):
+    listener = ServiceBusListener() 
+    app[servicebus_listener] = asyncio.create_task(listener.start_bus_listener())
 
+    yield
 
-app = CallerCallee()
-with asyncio.Runner() as runner:
-    runner.run(app.start())
+    app[servicebus_listener].cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await app[servicebus_listener]
+
+async def handle_calls_events(request):
+    logging.warning(request)
+    return web.Response(status=200)
+
+async def websocket_handler(request):
+    ws = web.WebSocketResponse()
+    await ws.prepare(request)
+
+    request.app[websockets].add(ws)
+    try:
+        async for msg in ws:
+            print(msg)
+    finally:
+        request.app[websockets].discard(ws)
+
+    return ws
+
+async def on_shutdown(app):
+    for ws in set(app[websockets]):
+        await ws.close(code=WSCloseCode.GOING_AWAY, message="Server shutdown")
+
+app = web.Application()
+logging.basicConfig(level=logging.WARNING)
+servicebus_listener = web.AppKey("servicebus_listener", asyncio.Task[None])
+websockets = web.AppKey("websockets", weakref.WeakSet)
+app[websockets] = weakref.WeakSet()
+app.add_routes([web.post('/calls', handle_calls_events)])
+app.add_routes([web.get('/transcriptions', websocket_handler)])
+app.cleanup_ctx.append(background_tasks)
+
+if __name__ == '__main__': 
+    web.run_app(app)

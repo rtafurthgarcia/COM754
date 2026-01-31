@@ -6,6 +6,7 @@ using CommunityToolkit.Mvvm.DependencyInjection;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using Microsoft.UI;
+using Microsoft.UI.Dispatching;
 using Microsoft.Windows.AppNotifications;
 using Microsoft.Windows.AppNotifications.Builder;
 using System;
@@ -41,6 +42,8 @@ namespace CallerCallee.ViewModels
         private readonly DatasetService datasetService = Ioc.Default.GetRequiredService<DatasetService>();
         private readonly CallerCalleeService callerCalleeService = Ioc.Default.GetRequiredService<CallerCalleeService>();
         private readonly SettingsService settingsService = Ioc.Default.GetRequiredService<SettingsService>();
+
+        DispatcherQueue dispatcherQueue = DispatcherQueue.GetForCurrentThread();
 
         public MainPageViewModel()
         {
@@ -143,11 +146,23 @@ namespace CallerCallee.ViewModels
             }
         }
 
-        public void Receive(CallInitiated message) => DataSource.Add(message.Value);
+        public void Receive(CallInitiated message) 
+        {
+            dispatcherQueue.TryEnqueue(() =>
+            {
+                DataSource.Add(message.Value);
+            });
+        }
 
         public void Receive(CallCompleted message)
         {
-            DataSource.Remove(message.Value);
+            dispatcherQueue.TryEnqueue(() =>
+            {
+                if (DataSource.Contains(message.Value))
+                {
+                    DataSource.Remove(message.Value);
+                }
+            });
         }
 
         public void Receive(CallInterrupted message)

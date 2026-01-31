@@ -6,6 +6,7 @@ using CommunityToolkit.Mvvm.Messaging;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Threading.Tasks;
 using static CallerCallee.Models.PhoneCallMessage;
 
@@ -24,12 +25,7 @@ namespace CallerCallee.Models
 
         public readonly CallDetails caller;
         public readonly CallDetails callee;
-        private readonly DatasetEntry entry;
-        public DatasetEntry Entry
-        {
-            get => entry;
-            private set;
-        }
+        public readonly DatasetEntry Entry;
 
         public enum Speaker
         {
@@ -37,12 +33,12 @@ namespace CallerCallee.Models
             Callee
         }
 
-        public DatasetEntry? CurrentTurn
+        public DatasetEntry CurrentTurn
         {
             get => Entry.Children.Count > 0 ? Entry.Children.Peek() : null;
         }
 
-        private readonly GroupCallLocator groupCallLocator = new GroupCallLocator(Guid.NewGuid());
+        private readonly GroupCallLocator groupCallLocator = new(Guid.NewGuid());
         private Speaker currentSpeaker = Speaker.Caller;
         private readonly CallTokenRefreshOptions callTokenRefreshOptions = new(true);
         private readonly CallClientOptions callClientOptions = new()
@@ -60,18 +56,22 @@ namespace CallerCallee.Models
             CommunicationUserIdentifierAndToken calleeIdAndToken, 
             int callerDeviceNumber, 
             int calleeDeviceNumber, 
-            DatasetEntry entry
+            DatasetEntry Entry
         )
         {
+            ArgumentNullException.ThrowIfNull(callerIdAndToken);
+            ArgumentNullException.ThrowIfNull(calleeIdAndToken);
+
             caller = new CallDetails(callerIdAndToken);
             callee = new CallDetails(calleeIdAndToken);
-            this.entry = entry;
+
+            this.Entry = Entry;
             caller.AudioDeviceNumber = callerDeviceNumber;
             callee.AudioDeviceNumber = calleeDeviceNumber;
         }
 
         public EventHandler OnEndOfCall;
-        private AudioService audioService = Ioc.Default.GetRequiredService<AudioService>();
+        private readonly AudioService audioService = Ioc.Default.GetRequiredService<AudioService>();
 
         public async Task DialUp()
         {
@@ -80,7 +80,6 @@ namespace CallerCallee.Models
             var calleeTokenCredential = new CallTokenCredential(callee.IdentifierAndToken.AccessToken.Token, callTokenRefreshOptions);
 
             caller.CallClient = new(callClientOptions);
-
             caller.CallAgent = await caller.CallClient.CreateCallAgentAsync(
                 callerTokenCredential,
                 new CallAgentOptions()
@@ -106,7 +105,8 @@ namespace CallerCallee.Models
                 await callerGroupOptionsTask
             );
             caller.Call.StateChanged += OnCallStateChangedAsync;
-            Debug.WriteLine($"{entry.Name}: Caller is joining group call {groupCallLocator.GroupId}");
+            caller.Call.RemoteParticipantsUpdated += OnCallRemoteParticipantsUpdated;
+            Debug.WriteLine($"{Entry.Name}: Caller is creating the group call {groupCallLocator.GroupId}");
             await Task.Delay(5000); // give it enough slack so that the first client gets registered. 
 
             callee.Call = await callee.CallAgent.JoinAsync(
@@ -114,25 +114,33 @@ namespace CallerCallee.Models
                 await calleeGroupOptionsTask
             );
             callee.Call.StateChanged += OnCallStateChangedAsync;
-            Debug.WriteLine($"{entry.Name}: Callee is joining group call {groupCallLocator.GroupId}");
+            //Debug.WriteLine($"{Entry.Name}: Callee is joining group call {groupCallLocator.GroupId}");
+        }
+
+        private void OnCallRemoteParticipantsUpdated(object sender, ParticipantsUpdatedEventArgs e)
+        {
+            e.AddedParticipants
+                .ToList()
+                .ForEach(participant => Debug.WriteLine($"{Entry.Name}: {participant.DisplayName} has joined group call {groupCallLocator.GroupId}"));
         }
 
         protected virtual void OnCallEnded(EventArgs args)
         {
             OnEndOfCall?.Invoke(this, args);
-            //WeakReferenceMessenger.Default.Send(new CallEnded(this));
+            //WeakReferenceMessenger.Default.Send(new CallCompleted(this));
         }
 
         private async void OnPlaybackStopped(object sender, EventArgs e)
         {
-            if (entry.Children.Count > 0)
+            if (Entry.Children.Count > 0)
             {
                 NextTurn();
             }
             else
             {
-                Debug.WriteLine($"{entry.Name}: Conversation over.");
+                Debug.WriteLine($"{Entry.Name}: Conversation over.");
                 await caller.Call.HangUpAsync(new HangUpOptions() { ForEveryone = true });
+                WeakReferenceMessenger.Default.Send(new CallCompleted(this));
             }
         }
 
@@ -157,23 +165,25 @@ namespace CallerCallee.Models
                     }
                     case CallState.Disconnected:
                     {
-                        Debug.WriteLine($"{entry.Name}: Call has been disconnected.");
+                        Debug.WriteLine($"{Entry.Name}: Call has been disconnected.");
                         call.StateChanged -= OnCallStateChangedAsync;
-                        call.Dispose();
                         if (call == callee.Call)
                         {
+                            callee.CallClient.Dispose();
                             callee.CallAgent.Dispose(); //otherwise doesnt liberate the credentials on the Azure side
                         }
                         else
                         {
+                            caller.CallClient.Dispose();
                             caller.CallAgent.Dispose();
                             OnCallEnded(new EventArgs());
                         }
+                        call.Dispose();
                         
                         // Implies the call was interrupted
-                        if (entry.Children.Count > 0)
+                        if (Entry.Children.Count > 0)
                         {
-                            Debug.WriteLine($"{entry.Name}: Call interrupted unexpectedly.");
+                            Debug.WriteLine($"{Entry.Name}: Call interrupted unexpectedly.");
                             WeakReferenceMessenger.Default.Send(
                                 new CallInterrupted(
                                     new Exception("Call interrupted unexpectedly")
@@ -202,7 +212,7 @@ namespace CallerCallee.Models
 
         private void NextTurn()
         {                        
-            var turn = entry.Children.Dequeue();
+            var turn = Entry.Children.Dequeue();
             WeakReferenceMessenger.Default.Send(
                 new NextTurnBeingPlayed(this)
             );
@@ -210,12 +220,12 @@ namespace CallerCallee.Models
             if (currentSpeaker.Equals(Speaker.Caller))
             {
                 var duration = audioService.PlayAudioFile(caller.AudioDeviceNumber, turn.FilePath, OnPlaybackStopped);
-                Debug.WriteLine($"{entry.Name}: Caller speaking: {turn.Name}, for {(int)duration.TotalSeconds}s");
+                Debug.WriteLine($"{Entry.Name}: Caller speaking: {turn.Name}, for {(int)duration.TotalSeconds}s");
             }
             else
             {
                 var duration = audioService.PlayAudioFile(callee.AudioDeviceNumber, turn.FilePath, OnPlaybackStopped);
-                Debug.WriteLine($"{entry.Name}: Callee speaking: {turn.Name}, for {(int)duration.TotalSeconds}s");
+                Debug.WriteLine($"{Entry.Name}: Callee speaking: {turn.Name}, for {(int)duration.TotalSeconds}s");
             }
             currentSpeaker = currentSpeaker.Equals(Speaker.Caller) ? Speaker.Callee : Speaker.Caller;
         }
