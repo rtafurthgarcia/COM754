@@ -3,11 +3,9 @@ using Azure.Communication.Identity;
 using CallerCallee.Services;
 using CommunityToolkit.Mvvm.DependencyInjection;
 using CommunityToolkit.Mvvm.Messaging;
-using Microsoft.CognitiveServices.Speech.Audio;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
 using System.Threading.Tasks;
 using static CallerCallee.Models.PhoneCallMessage;
 
@@ -44,6 +42,7 @@ namespace CallerCallee.Models
             get => Entry.Children.Count > 0 ? Entry.Children.Peek() : null;
         }
 
+        private readonly GroupCallLocator groupCallLocator = new GroupCallLocator(Guid.NewGuid());
         private Speaker currentSpeaker = Speaker.Caller;
         private readonly CallTokenRefreshOptions callTokenRefreshOptions = new(true);
         private readonly CallClientOptions callClientOptions = new()
@@ -86,58 +85,45 @@ namespace CallerCallee.Models
                 callerTokenCredential,
                 new CallAgentOptions()
                 {
-                    DisplayName = $"{Environment.MachineName}/COM754-Caller",
+                    DisplayName = $"{Entry.Name}/COM754-Caller",
                 }
             );
 
             callee.CallClient = new(callClientOptions);
-            var setupCallTask = SetupOutgoingCallOptions();
+            var callerGroupOptionsTask = SetupGroupCallOptions(caller);
+            var calleeGroupOptionsTask = SetupGroupCallOptions(callee);
 
             callee.CallAgent = await callee.CallClient.CreateCallAgentAsync(
                 calleeTokenCredential,
                 new CallAgentOptions()
                 {
-                    DisplayName = $"{Environment.MachineName}/COM754-Callee",
+                    DisplayName = $"{Entry.Name}/COM754-Callee",
                 }
             );
-            callee.CallAgent.IncomingCallReceived += OnIncomingCallAsync;
-            await Task.Delay(5000); // give it enough slack so that the fist client gets registered. 
 
-            caller.Call = await caller.CallAgent.StartCallAsync(
-                new[] { new UserCallIdentifier(callee.IdentifierAndToken.User.Id) },
-                await setupCallTask
+            caller.Call = await caller.CallAgent.JoinAsync(
+                groupCallLocator,
+                await callerGroupOptionsTask
             );
             caller.Call.StateChanged += OnCallStateChangedAsync;
-            Debug.WriteLine($"{entry.Name}: Caller is phoning callee");
-        }
+            Debug.WriteLine($"{entry.Name}: Caller is joining group call {groupCallLocator.GroupId}");
+            await Task.Delay(5000); // give it enough slack so that the first client gets registered. 
 
-        private void OnCaptionsReceived(object sender, CommunicationCaptionsReceivedEventArgs e)
-        {
-            if (e.CaptionsResultKind.Equals(CaptionsResultKind.Final))
-            {
-                Debug.WriteLine($"{e.Speaker.DisplayName} said: {e.SpokenText}");
-            }
+            callee.Call = await callee.CallAgent.JoinAsync(
+                groupCallLocator,
+                await calleeGroupOptionsTask
+            );
+            callee.Call.StateChanged += OnCallStateChangedAsync;
+            Debug.WriteLine($"{entry.Name}: Callee is joining group call {groupCallLocator.GroupId}");
         }
 
         protected virtual void OnCallEnded(EventArgs args)
         {
             OnEndOfCall?.Invoke(this, args);
-            WeakReferenceMessenger.Default.Send(new CallEnded(this));
+            //WeakReferenceMessenger.Default.Send(new CallEnded(this));
         }
 
-        private async void OnIncomingCallAsync(object sender, IncomingCallReceivedEventArgs args)
-        {
-            var incomingCall = args.IncomingCall;
-            callee.Call = await incomingCall.AcceptAsync(await SetupIncomingCallOptions());
-            //callee.Call.
-
-            Debug.WriteLine($"{entry.Name}: Callee has picked up the phone");
-            callee.Call.StateChanged += OnCallStateChangedAsync;
-            
-            NextTurn();
-        }
-
-        private void OnPlaybackStopped(object sender, EventArgs e)
+        private async void OnPlaybackStopped(object sender, EventArgs e)
         {
             if (entry.Children.Count > 0)
             {
@@ -146,6 +132,7 @@ namespace CallerCallee.Models
             else
             {
                 Debug.WriteLine($"{entry.Name}: Conversation over.");
+                await caller.Call.HangUpAsync(new HangUpOptions() { ForEveryone = true });
             }
         }
 
@@ -161,17 +148,9 @@ namespace CallerCallee.Models
                     case CallState.Connected:
                     {
                         await call.StartAudioAsync(call.ActiveOutgoingAudioStream);
-                            //var captions = await caller.Call.Features.Captions.GetCaptionsAsync() as CommunicationCaptions;
-                            //await captions.StartCaptionsAsync(new StartCaptionsOptions() { SpokenLanguage = "en-us" });
-                            //captions.CaptionsReceived += OnCaptionsReceived;
-
-                        var captionsCallFeature = call.Features.Captions;
-                        var callCaptions = await captionsCallFeature.GetCaptionsAsync();
-                        if (callCaptions.CaptionsKind == CaptionsKind.CommunicationCaptions)
+                        if (call == callee.Call)
                         {
-                            var communicationCaptions = callCaptions as CommunicationCaptions;
-                            await communicationCaptions.StartCaptionsAsync(new StartCaptionsOptions() { SpokenLanguage = "en-us" });
-                            communicationCaptions.CaptionsReceived += OnCaptionsReceived;
+                            NextTurn();
                         }
 
                         break;
@@ -180,10 +159,16 @@ namespace CallerCallee.Models
                     {
                         Debug.WriteLine($"{entry.Name}: Call has been disconnected.");
                         call.StateChanged -= OnCallStateChangedAsync;
-                        OnCallEnded(new EventArgs());
                         call.Dispose();
-                        caller.CallAgent.Dispose(); //otherwise doesnt liberate the credentials on the Azure side
-                        callee.CallAgent.Dispose();
+                        if (call == callee.Call)
+                        {
+                            callee.CallAgent.Dispose(); //otherwise doesnt liberate the credentials on the Azure side
+                        }
+                        else
+                        {
+                            caller.CallAgent.Dispose();
+                            OnCallEnded(new EventArgs());
+                        }
                         
                         // Implies the call was interrupted
                         if (entry.Children.Count > 0)
@@ -203,46 +188,16 @@ namespace CallerCallee.Models
             }
         }
 
-        private async Task<StartCallOptions> SetupOutgoingCallOptions()
+        private static async Task<JoinCallOptions> SetupGroupCallOptions(CallDetails participantDetails)
         {
-            var deviceManager = await caller.CallClient.GetDeviceManagerAsync();
-            deviceManager.SetMicrophone(AudioService.FindEquivalent(caller.AudioDeviceNumber, [.. deviceManager.Microphones]));
-            var outgoingStream = new LocalOutgoingAudioStream();
+            var deviceManager = await participantDetails.CallClient.GetDeviceManagerAsync();
+            deviceManager.SetMicrophone(AudioService.FindEquivalent(participantDetails.AudioDeviceNumber, [.. deviceManager.Microphones]));
+            var stream = new LocalOutgoingAudioStream();
 
-            var options = new StartCallOptions()
+            return new JoinCallOptions()
             {
-                OutgoingAudioOptions = new OutgoingAudioOptions()
-                {
-                    IsMuted = false,
-                    Stream = outgoingStream,
-                    Filters = new OutgoingAudioFilters()
-                    {
-                    },
-                }
+                OutgoingAudioOptions = new OutgoingAudioOptions() { IsMuted = false, Stream = stream },
             };
-
-            return options;
-        }
-
-        private async Task<AcceptCallOptions> SetupIncomingCallOptions()
-        {
-            var deviceManager = await callee.CallClient.GetDeviceManagerAsync();
-            deviceManager.SetMicrophone(AudioService.FindEquivalent(callee.AudioDeviceNumber, [.. deviceManager.Microphones]));
-            var incomingStream = new LocalOutgoingAudioStream();
-
-            var options = new AcceptCallOptions()
-            {
-                OutgoingAudioOptions = new OutgoingAudioOptions()
-                {
-                    IsMuted = false,
-                    Stream = incomingStream,
-                    Filters = new OutgoingAudioFilters()
-                    {
-                    }
-                },
-            };
-
-            return options;
         }
 
         private void NextTurn()

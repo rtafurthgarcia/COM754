@@ -16,7 +16,7 @@ using static CallerCallee.Models.PhoneCallMessage;
 
 namespace CallerCallee.ViewModels
 {
-    public partial class MainPageViewModel : ObservableRecipient, IRecipient<CallInitiated>, IRecipient<CallEnded>, IRecipient<CallInterrupted>
+    public partial class MainPageViewModel : ObservableRecipient, IRecipient<CallInitiated>, IRecipient<CallCompleted>, IRecipient<CallInterrupted>
     {
         public ObservableCollection<PhoneCall> DataSource { get; } = [];
 
@@ -145,7 +145,7 @@ namespace CallerCallee.ViewModels
 
         public void Receive(CallInitiated message) => DataSource.Add(message.Value);
 
-        public void Receive(CallEnded message)
+        public void Receive(CallCompleted message)
         {
             DataSource.Remove(message.Value);
         }

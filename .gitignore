@@ -219,3 +219,5 @@ __marimo__/
 CallerCallee/.vs/
 CallerCallee/obj/
 CallerCallee/bin/
+
+.vscode

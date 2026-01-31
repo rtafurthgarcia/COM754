@@ -1,14 +1,15 @@
 #from concurrent.futures import ThreadPoolExecutor
+from operator import truediv
 import os 
 import csv
 from azure.keyvault.secrets import SecretClient
 from azure.identity import DefaultAzureCredential
 from azure.core.credentials import AccessToken
-from azure.communication.callautomation import CallAutomationClient, TranscriptionOptions
+from azure.communication.callautomation import CallAutomationClient, CallConnectionClient, TranscriptionOptions
 from azure.communication.identity import CommunicationIdentityClient
 from azure.servicebus.aio import ServiceBusClient
 from azure.core.exceptions import ServiceResponseError
-from common import IncomingCall, deserialise_event
+from common import CallStarted, IncomingCall, deserialise_event
 import asyncio
 
 class CallerCallee:
@@ -17,14 +18,11 @@ class CallerCallee:
     CS_ENDPOINT_NAME: str = "com754-cs-endpoint"
     SBUS_ENDPOINT_NAME: str = "com754-sbus-endpoint"
     SBUS_CONNECTION_STRING_NAME: str = "com754-sbus-connectionstring"
+    DT_ENDPOINT_NAME: str = "com754-dt-endpoint"
+    AI_ENDPOINT_NAME: str = "com754-ai-endpoint"
     QUEUE = "calls"
 
     def __init__(self):
-
-        # there is an upper limit due to the max throughpout the dev tunnel allows
-        # which is 20mb/s
-        #self.executor = ThreadPoolExecutor(max_workers=4)
-        
         keyvault_name = os.environ["KEY_VAULT_NAME"]
 
         # URI for accessing key vault
@@ -40,67 +38,62 @@ class CallerCallee:
         self.cs_key = kv_client.get_secret(self.CS_KEY_NAME).value or ""
         self.sbus_endpoint = kv_client.get_secret(self.SBUS_ENDPOINT_NAME).value or ""
         self.sbus_connection_string = kv_client.get_secret(self.SBUS_CONNECTION_STRING_NAME).value or ""
-
         self.sbus_uri = self.sbus_endpoint + self.QUEUE
+        self.local_endpoint = kv_client.get_secret(self.DT_ENDPOINT_NAME).value or ""
+        self.ai_endpoint = kv_client.get_secret(self.AI_ENDPOINT_NAME).value or ""
 
         self._call_identity_client = CommunicationIdentityClient.from_connection_string(
             conn_str="endpoint={}/;accesskey={}".format(self.cs_endpoint, self.cs_key)
         )
 
         self._call_automation_client = CallAutomationClient(credential=self.credential, endpoint=self.cs_endpoint)
+        self._ongoing_calls = []
     
-    def handle_call(self, call: IncomingCall):
-        accepted_call = self._call_automation_client.answer_call(
-            call.incomingCallContext, 
-            callback_url=self.sbus_uri)
+    def join_call(self, call: CallStarted):
+        accepted_call = self._call_automation_client.connect_call(
+            group_call_id=call.group_id,
+            callback_url=f"https://{self.local_endpoint}calls",
+            transcription=TranscriptionOptions(
+                transport_url="wss://{self.local_endpoint}transcription",
+                transport_type="WEBSOCKET",
+                locale="en-US",
+                start_transcription=True,
+                speech_recognition_model_endpoint_id = "gpt-4o-mini-transcribe"
+            ),
+            cognitive_services_endpoint=self.ai_endpoint)
 
         if (accepted_call.call_connection_id is None):
             raise ServiceResponseError("No call connection ID found")
 
-        call_connection = self._call_automation_client.get_call_connection(accepted_call.call_connection_id)
-        #call_connection.play_media()
-
-    def parse_dataset(self, path: str):
-        with open(os.path.join("dataset", "Source.csv"), newline='') as csvfile:
-            reader = csv.reader(csvfile, delimiter=';', quotechar='|')
-            for row in reader:
-                if reader.line_num == 1:
-                    continue
-
-                if row[0] == '': #eol
-                    break
-
-                path = os.path.join("dataset", "v", row[0]) if int(row[2]) == 1 else os.path.join("dataset", "nv", row[0])
-
+        self._ongoing_calls.append(self._call_automation_client.get_call_connection(accepted_call.call_connection_id))
     
-    async def start_calls(self, dataset_path: str):
-        self.leftover_calls = self.parse_dataset(dataset_path)
-
-        callee_identifier = self._call_identity_client.create_user()
-
-        self._call_automation_client.create_call(
-            target_participant=callee_identifier, # type: ignore
-            callback_url=self.sbus_uri
-        )
+    async def start(self):
+        self._call_identity_client.create_user()
 
         async with ServiceBusClient.from_connection_string(
             conn_str=self.sbus_connection_string
         ) as servicebus_client:
             async with servicebus_client:
                 # get the Queue Receiver object for the queue
-                receiver = servicebus_client.get_queue_receiver(queue_name=self.QUEUE)
+                receiver = servicebus_client.get_queue_receiver(queue_name=self.QUEUE, )
                 async with receiver:
-                    received_msgs = await receiver.receive_messages(max_wait_time=5, max_message_count=20)
-                    for message in received_msgs:        
-                        event = deserialise_event(message.body)
+                    while(True):
+                        for message in await receiver.receive_messages():   
+                            try:     
+                                await self.process_message(receiver, message)
+                            except:
+                                print(f"Error with {message.message_id}")
 
-                        if isinstance(event, IncomingCall):
-                            self.handle_call(event)
+    async def process_message(self, receiver, message):
+        event = deserialise_event(message.body)
 
-                        await receiver.complete_message(message)
+        if isinstance(event, CallStarted):
+            self.join_call(event)
+
+        await receiver.complete_message(message)
 
 
 
 app = CallerCallee()
 with asyncio.Runner() as runner:
-    runner.run(app.start_calls(""))
+    runner.run(app.start())

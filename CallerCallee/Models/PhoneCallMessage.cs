@@ -13,7 +13,7 @@ namespace CallerCallee.Models
         {
         }
 
-        public class CallEnded(PhoneCall call) : ValueChangedMessage<PhoneCall>(call)
+        public class CallCompleted(PhoneCall call) : ValueChangedMessage<PhoneCall>(call)
         {
         }
 

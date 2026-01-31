@@ -18,6 +18,17 @@ class IncomingCall:
             incomingCallContext=json["incomingCallContext"],
             serverCallId=json["serverCallId"]
         )
+    
+@dataclass
+class CallStarted:
+    group_id: str
+
+    @staticmethod
+    def from_json(json: dict):
+        return CallStarted(
+            group_id=json["group"]["id"],
+        )
+
 
 @dataclass
 class DatasetEntry:
@@ -27,12 +38,14 @@ class DatasetEntry:
 
 def deserialise_event(raw_event):
     classes = {
-        "Microsoft.Communication.IncomingCall": IncomingCall.from_json
+        "Microsoft.Communication.IncomingCall": IncomingCall.from_json,
+        "Microsoft.Communication.CallStarted": CallStarted.from_json
     }
 
     dict_event = json.loads(next(raw_event).decode("utf-8"))
 
-    if "eventType" not in dict_event or dict_event["eventType"] not in classes.keys():
+    if "eventType" not in dict_event:
         raise DeserializationError()
-    else:
+    elif dict_event["eventType"] in classes:
         return classes[dict_event["eventType"]](dict_event["data"])
+    return None
