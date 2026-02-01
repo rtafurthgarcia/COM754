@@ -1,10 +1,6 @@
-from ast import Call
 import logging
-from logging.config import dictConfig
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, Response, WebSocketException, websockets
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, Response
 from fastapi.responses import JSONResponse
-from rich.status import Status
-from uvicorn.config import LOGGING_CONFIG
 from common import Acknowledgment, CallEnded, CallStarted, SubscriptionValidation, deserialise_event, deserialise_ws_message
 import uvicorn
 
