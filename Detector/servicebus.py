@@ -36,6 +36,8 @@ class ServiceBusListener:
         self.sbus_uri = self.sbus_endpoint + self.QUEUE
         self.local_endpoint = kv_client.get_secret(self.DT_ENDPOINT_NAME).value or ""
         self.ai_endpoint = kv_client.get_secret(self.AI_ENDPOINT_NAME).value or ""
+        self.logger.info(f"{__name__}: DT_ENDPOINT_NAME = {self.local_endpoint}.")
+        self.logger.info(f"{__name__}: AI_ENDPOINT_NAME = {self.ai_endpoint}.")    
 
         self._call_identity_client = CommunicationIdentityClient.from_connection_string(
             conn_str=f"endpoint={self.cs_endpoint}/;accesskey={self.cs_key}"
@@ -59,7 +61,7 @@ class ServiceBusListener:
                 enable_intermediate_results=False,
                 pii_redaction=None, 
                 enable_sentiment_analysis=False,
-                speech_recognition_model_endpoint_id="azureml://registries/azure-openai/models/gpt-4o-mini-transcribe/versions/2025-12-15"
+                #speech_recognition_model_endpoint_id="azureml://registries/azure-openai/models/gpt-4o-mini-transcribe/versions/2025-12-15"
             ),
             cognitive_services_endpoint=self.ai_endpoint)
 
@@ -70,10 +72,11 @@ class ServiceBusListener:
         self._ongoing_calls[call.group_id] = self._call_automation_client.get_call_connection(accepted_call.call_connection_id)
 
     def leave_call(self, call: CallEnded):
-        if call.group_id not in self._ongoing_calls:
-            self.logger.error(f"{__name__}: Call with group ID {call.group_id} not found among ongoing calls")
+        if call.group_id not in self._ongoing_calls.keys():
+            #self.logger.inf(f"{__name__}: Call with group ID {call.group_id} not found among ongoing calls")
+            # disabled cuz suspected it might be triggered 3 times, for each call has 3 participants
             return
 
         call_connection = self._ongoing_calls[call.group_id]
-        call_connection.hang_up(is_for_everyone=True)
+        call_connection.hang_up(is_for_everyone=False)
         del self._ongoing_calls[call.group_id]
