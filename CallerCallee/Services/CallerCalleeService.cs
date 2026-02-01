@@ -25,7 +25,6 @@ namespace CallerCallee.Services
         private KeyVaultSecret csEndpoint;
 
         private CommunicationIdentityClient communicationIdentity;
-        private ConcurrentStack<CommunicationUserIdentifierAndToken> availableCredentials;
         private SemaphoreSlim semaphore;
 
         public async Task<DefaultAzureCredential> Authenticate()
@@ -61,20 +60,6 @@ namespace CallerCallee.Services
         {
             ArgumentNullException.ThrowIfNull(credential);
 
-            availableCredentials = new ConcurrentStack<CommunicationUserIdentifierAndToken>();
-            Debug.WriteLine($"Generating {maxAmountOfParallelCalls} pairs of credentials.");
-            await Task.WhenAll(
-                Enumerable
-                    .Range(0, (maxAmountOfParallelCalls * 2))
-                    .AsParallel()
-                    .Select(async i =>
-                    {
-                        availableCredentials.Push(await communicationIdentity.CreateUserAndTokenAsync([CommunicationTokenScope.VoIP]));
-                        Debug.WriteLine($"{i} generated.");
-                        return i;
-                    })
-            );
-
             semaphore = new SemaphoreSlim(maxAmountOfParallelCalls, maxAmountOfParallelCalls);
             var dataset = Ioc.Default.GetRequiredService<DatasetService>().Dataset;
             Debug.WriteLine($"Running simulation on {dataset.Count} calls.");
@@ -107,14 +92,12 @@ namespace CallerCallee.Services
 
                 if (caller is null)
                 {
-                    if (!availableCredentials.TryPop(out caller))
-                        continue;
+                    caller = await communicationIdentity.CreateUserAndTokenAsync([CommunicationTokenScope.VoIP]);
                 }
 
                 if (callee is null)
                 {
-                    if (!availableCredentials.TryPop(out callee))
-                        continue;
+                    callee = await communicationIdentity.CreateUserAndTokenAsync([CommunicationTokenScope.VoIP]);
                 }
 
                 try
@@ -135,9 +118,6 @@ namespace CallerCallee.Services
                 {
                     Debug.WriteLine($"{callEntry.Name}: Error during call init: {e}");
                     semaphore.Release();
-
-                    availableCredentials.Push(caller);
-                    availableCredentials.Push(callee);
 
                     Ioc.Default.GetRequiredService<AudioService>().TryFreeDevice((int)calleeDevice);
                     Ioc.Default.GetRequiredService<AudioService>().TryFreeDevice((int)callerDevice);
@@ -163,8 +143,6 @@ namespace CallerCallee.Services
                 semaphore.Release();
                 Debug.WriteLine($"{phoneCall.Entry.Name}: Call ended after {(int)(DateTime.Now - phoneCall.caller.Call.StartTime).TotalSeconds}s.");
 
-                availableCredentials.Push(phoneCall.callee.IdentifierAndToken);
-                availableCredentials.Push(phoneCall.caller.IdentifierAndToken);
                 Ioc.Default.GetRequiredService<AudioService>().TryFreeDevice(phoneCall.caller.AudioDeviceNumber);
                 Ioc.Default.GetRequiredService<AudioService>().TryFreeDevice(phoneCall.callee.AudioDeviceNumber);
             }
