@@ -113,6 +113,16 @@ class TranscriptionData:
             sentimentAnalysisResult=json.get("sentimentAnalysisResult"),
             words=[WordData.from_json(w) for w in json.get("words", [])]
         )
+    
+@dataclass
+class SubscriptionValidation:
+    validationCode: str
+
+    @staticmethod
+    def from_json(json: dict):
+        return SubscriptionValidation(
+            validationCode=json["validationCode"]
+        )
 
 @dataclass
 class DatasetEntry:
@@ -120,21 +130,25 @@ class DatasetEntry:
     path: str
     files: set[str]
 
+@dataclass
+class Acknowledgment:
+    type: str
+
 def deserialise_event(raw_event):
     classes = {
         "Microsoft.Communication.IncomingCall": IncomingCall.from_json,
         "Microsoft.Communication.CallStarted": CallStarted.from_json,
         "Microsoft.Communication.CallEnded": CallEnded.from_json,
         "Microsoft.Communication.CallParticipantAdded": CallParticipantAdded.from_json,
+        "Microsoft.EventGrid.SubscriptionValidationEvent": SubscriptionValidation.from_json,
     }
 
-    dict_event = json.loads(next(raw_event).decode("utf-8"))
-
-    if "eventType" not in dict_event:
+    if "eventType" in raw_event:
+        return classes[raw_event["eventType"]](raw_event["data"])
+    elif "type" in raw_event:
+        return Acknowledgment(raw_event["type"])
+    else:
         raise DeserializationError()
-    elif dict_event["eventType"] in classes:
-        return classes[dict_event["eventType"]](dict_event["data"])
-    return None
 
 def deserialise_ws_message(raw_message):
     classes = {
