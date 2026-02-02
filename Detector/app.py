@@ -1,10 +1,10 @@
 import logging
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, Response
 from fastapi.responses import JSONResponse
-from common import Acknowledgment, CallEnded, CallStarted, SubscriptionValidation, deserialise_event, deserialise_ws_message
+from Detector.models import Acknowledgment, CallEnded, CallStarted, SubscriptionValidation, deserialise_event, deserialise_ws_message
 import uvicorn
 
-from servicebus import ServiceBusListener
+from Detector.service import Service
 
 class ConnectionManager:
     def __init__(self):
@@ -21,7 +21,7 @@ class ConnectionManager:
 app = FastAPI()
 manager = ConnectionManager()
 logger = logging.getLogger("uvicorn.error")
-servicebus = ServiceBusListener()
+servicebus = Service()
 
 @app.get("/ping")
 async def pong_handler(request: Request):
