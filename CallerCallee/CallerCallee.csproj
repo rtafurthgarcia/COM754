@@ -15,6 +15,12 @@
 		<CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
 		<DefineConstants>ACS</DefineConstants>
 	</PropertyGroup>
+	<ItemGroup>
+	  <Compile Remove="Helpers\**" />
+	  <EmbeddedResource Remove="Helpers\**" />
+	  <None Remove="Helpers\**" />
+	  <Page Remove="Helpers\**" />
+	</ItemGroup>
 
 	<ItemGroup>
 		<Content Include="Assets\SplashScreen.scale-200.png" />
@@ -57,9 +63,6 @@
 			<Generator>MSBuild:Compile</Generator>
 		</None>
 	</ItemGroup>
-	<ItemGroup>
-	  <Folder Include="Helpers\" />
-	</ItemGroup>
 
 	<!-- 
     Defining the "HasPackageAndPublishMenuAddedByProject" property here allows the Solution 
@@ -78,4 +81,7 @@
 		</ItemGroup>
 		<Copy SourceFiles="@(ACSNative)" DestinationFolder="$(OutDir)Appx" SkipUnchangedFiles="true" />
 	</Target>
+	<ItemGroup>
+	  <PRIResource Remove="Helpers\**" />
+	</ItemGroup>
 </Project>

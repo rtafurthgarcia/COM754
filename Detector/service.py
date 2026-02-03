@@ -2,13 +2,14 @@
 from collections import OrderedDict
 import logging
 import os
+import time
 from azure.keyvault.secrets import SecretClient
 from azure.identity import DefaultAzureCredential
-from azure.communication.callautomation import CallAutomationClient, CallConnectionClient, TranscriptionOptions
+from azure.communication.callautomation import CallAutomationClient, TranscriptionOptions
 from azure.communication.identity import CommunicationIdentityClient
 from azure.core.exceptions import ServiceResponseError
 from openai import OpenAI
-from Detector.models import CallEnded, CallStarted, FinalDetectorResults, get_prompts
+from models import CallStarted, FinalDetectorResults, OngoingCall, TranscriptionData, TurnOfConversation, get_prompts
 
 class Service:
     CS_KEY_NAME: str = "com754-cs-key"
@@ -24,7 +25,7 @@ class Service:
     TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe"
 
     def __init__(self):
-        keyvault_name = os.environ["KEY_VAULT_NAME"] or "com754-kv"
+        keyvault_name = os.environ["KEY_VAULT_NAME"]
         self.logger = logging.getLogger("uvicorn.error")
         # URI for accessing key vault
         keyvault_uri = f"https://{keyvault_name}.vault.azure.net"
@@ -55,7 +56,7 @@ class Service:
             credential=self.credential, 
             endpoint=self.cs_endpoint
         )
-        self._ongoing_calls : dict[str, CallConnectionClient] = {}
+        self._ongoing_calls : dict[str, OngoingCall] = {}
         self.logger.info(f"{__name__}: CallAutomationClient created.")
 
         self.ai_client = OpenAI(base_url=self.ai_endpoint, api_key=self.ai_key)
@@ -81,19 +82,35 @@ class Service:
             self.logger.error(f"{__name__}: No call connection ID found")
             raise ServiceResponseError(f"{__name__}: No call connection ID found")
 
-        self._ongoing_calls[call.group_id] = self._call_automation_client.get_call_connection(accepted_call.call_connection_id)
+        self._ongoing_calls[accepted_call.call_connection_id] = OngoingCall(
+            call=self._call_automation_client.get_call_connection(accepted_call.call_connection_id))
 
-    def leave_call(self, call: CallEnded):
-        if call.group_id not in self._ongoing_calls.keys():
+    def leave_call(self, call_id):
+        if call_id not in self._ongoing_calls.keys():
             #self.logger.inf(f"{__name__}: Call with group ID {call.group_id} not found among ongoing calls")
             # disabled cuz suspected it might be triggered 3 times, for each call has 3 participants
             return
 
-        call_connection = self._ongoing_calls[call.group_id]
-        call_connection.hang_up(is_for_everyone=False)
-        del self._ongoing_calls[call.group_id]
+        ongoing_call = self._ongoing_calls[call_id]
+        if ongoing_call.call is None:
+            #self.logger.inf(f"{__name__}: Call with group ID {call.group_id} not found among ongoing calls")
+            # disabled cuz suspected it might be triggered 3 times, for each call has 3 participants
+            return
 
-    def _analyse_call_for_vishing_naive(self, conversation: OrderedDict) -> FinalDetectorResults | None:
+        ongoing_call.call.hang_up(is_for_everyone=False)
+        del self._ongoing_calls[call_id]
+
+    def conclude_analysis(self, call_id: str):
+        self._ongoing_calls[call_id].end_timestamp = time.time()
+
+    def analyse_call_for_vishing_naive(self, call_id: str, new_transcription: TranscriptionData):
+        timeset = time.time() - self._ongoing_calls[call_id].start_timestamp
+        self._ongoing_calls[call_id].conversation[timeset] = TurnOfConversation(
+            speaker=new_transcription.participantRawID, 
+            text=new_transcription.text
+        )
+
+        content = str(self._ongoing_calls[call_id].conversation_to_str())
         response = self.ai_client.responses.parse(
             model=self.DETECTOR_MODEL,
             store=False,
@@ -102,13 +119,19 @@ class Service:
             input=[
                 {
                     "role": "user",
-                    "content": str(conversation)
+                    "content": content
                 }
             ],
-            text_format=FinalDetectorResults
+            text_format=FinalDetectorResults,
+            timeout=60
         )
 
-        return response.output_parsed
+        self.logger.info(f"{__name__}: {call_id}: {content}")
+        if (response.output_parsed is not None and response.output_parsed.answer is not None):
+            self.logger.info(f"{__name__}: {call_id}: verdict: {response.output_parsed.answer}")
+            self._ongoing_calls[call_id].conversation[timeset].naive_result = response.output_parsed
+        else:
+            self.logger.error(f"{__name__}: {call_id}: failed to assess this bit of conversation.")
     
     def _analyse_call_for_vishing(
         self, 

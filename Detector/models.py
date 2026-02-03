@@ -1,12 +1,13 @@
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
 import time
-from typing import List, Literal, Optional
+from typing import List, Literal, Optional, Tuple
 from azure.communication.identity import CommunicationUserIdentifier
 from azure.core.exceptions import DeserializationError
-from azure.communication.callautomation import CallAutomationClient
+from azure.communication.callautomation import CallAutomationClient, CallConnectionClient
 
+from openai import conversations
 from pydantic import BaseModel
 
 class FinalDetectorResults(BaseModel):
@@ -199,20 +200,32 @@ class SubscriptionValidation:
         )
 
 @dataclass
-class DatasetEntry:
-    id: int
-    call: CallAutomationClient
-    conversation: OrderedDict[float, TurnOfConversation] = OrderedDict()
-    start_timestamp: Optional[float] = time.time()
-    end_timestamp: Optional[float] = None
-
-@dataclass
 class TurnOfConversation:
     speaker: str
     text: str
     naive_result: Optional[FinalDetectorResults] = None
-    naive_result: Optional[FinalDetectorResults] = None
-    timestamp: Optional[float] = time.time()
+    enhanced_result: Optional[FinalDetectorResults] = None
+    timestamp: float = time.time()
+
+@dataclass
+class OngoingCall:
+    call: CallConnectionClient | None
+    conversation: OrderedDict[float, TurnOfConversation] = field(default_factory=OrderedDict)
+    start_timestamp: float = time.time()
+    end_timestamp: Optional[float] = None
+
+    def conversation_to_str(self):
+        result = ""
+
+        for turn in self.conversation.values():
+            result += f"{turn.speaker} at {turn.timestamp} said:\n"
+            result += f"{turn.text}"
+
+        return result
+
+    def get_final_results(self) -> Tuple[FinalDetectorResults | None, FinalDetectorResults | None]:
+        last_ruling = self.conversation[next(reversed(self.conversation))]
+        return last_ruling.naive_result, last_ruling.enhanced_result
 
 @dataclass
 class Acknowledgment:
@@ -234,7 +247,7 @@ def deserialise_event(raw_event):
     else:
         raise DeserializationError()
 
-def deserialise_ws_message(raw_message):
+def deserialise_ws_message(raw_message) -> TranscriptionData | TranscriptionMetadata:
     classes = {
         "TranscriptionMetadata": TranscriptionMetadata.from_json,
         "TranscriptionData": TranscriptionData.from_json,
@@ -242,8 +255,7 @@ def deserialise_ws_message(raw_message):
 
     dict_event = json.loads(raw_message)
 
-    if "kind" not in dict_event:
+    if "kind" not in dict_event or dict_event["kind"] not in classes:
         raise DeserializationError()
-    elif dict_event["kind"] in classes:
+    else:
         return classes[dict_event["kind"]](dict_event[dict_event["kind"][0].lower() + dict_event["kind"][1:]])
-    return None

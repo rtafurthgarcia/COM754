@@ -220,4 +220,4 @@ CallerCallee/.vs/
 CallerCallee/obj/
 CallerCallee/bin/
 
-.vscode
+.vscode/*

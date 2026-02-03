@@ -1,10 +1,11 @@
 import logging
+from unittest.mock import call
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, Response
 from fastapi.responses import JSONResponse
-from Detector.models import Acknowledgment, CallEnded, CallStarted, SubscriptionValidation, deserialise_event, deserialise_ws_message
+from models import Acknowledgment, CallEnded, CallStarted, SubscriptionValidation, TranscriptionData, TranscriptionMetadata, deserialise_event, deserialise_ws_message
 import uvicorn
 
-from Detector.service import Service
+from service import Service
 
 class ConnectionManager:
     def __init__(self):
@@ -21,7 +22,7 @@ class ConnectionManager:
 app = FastAPI()
 manager = ConnectionManager()
 logger = logging.getLogger("uvicorn.error")
-servicebus = Service()
+service = Service()
 
 @app.get("/ping")
 async def pong_handler(request: Request):
@@ -44,11 +45,11 @@ async def confirm_calls_handler(request: Request):
 
         if isinstance(event, CallStarted):
             logger.info(f"{__name__}: Joining call {event.group_id}")
-            servicebus.join_call(event)
+            service.join_call(event)
 
         if isinstance(event, CallEnded):
             logger.info(f"{__name__}: Leaving call {event.group_id}")
-            servicebus.leave_call(event)
+            service.leave_call(event)
 
         if isinstance(event, Acknowledgment):
             logger.info(f"{__name__}: Received acknowledgment of type {event.type}")
@@ -59,17 +60,27 @@ async def confirm_calls_handler(request: Request):
 async def transcription_handler(websocket: WebSocket):
     await manager.connect(websocket)
     logger.info(f"{__name__}: connection received from {websocket.client or "unknown host?"}")
+    call_connection_id = None 
     try:
         while True:
             data = await websocket.receive_text()
-            event = deserialise_ws_message(data)    
-            logger.info(f"{__name__}: received event of type {type(event)}")
+            message = deserialise_ws_message(data)    
+            logger.info(f"{__name__}: received message of type {type(message)}")
+
+            if (isinstance(message, TranscriptionMetadata)):
+                logger.info(f"{__name__}: call connection ID obtained: {message.callConnectionId}")
+                call_connection_id = message.callConnectionId
+            elif (isinstance(message, TranscriptionData) and call_connection_id is not None):
+                logger.info(f"{__name__}: {call_connection_id}: call is being analysed...")
+                service.analyse_call_for_vishing_naive(call_connection_id, message)
         
     except WebSocketDisconnect:
         logger.info(f"{__name__}: disconnected")
     except Exception as e:
         logger.info(f"{__name__}: closed unexpectedly due to an error: {e}")
     finally:
+        if (call_connection_id is not None):
+            service.conclude_analysis(call_connection_id)
         manager.remove(websocket)
 
 if __name__ == "__main__":
