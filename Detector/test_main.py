@@ -1,27 +1,111 @@
-import time
-from fastapi.testclient import TestClient
-from models import FinalDetectorResults, OngoingCall
-from service import Service 
-from app import app
+# tests/test_app.py
+
 import unittest
 import uuid
+import time
+from datetime import datetime, timezone
+
+from fastapi.testclient import TestClient
+from dependency_injector import providers
+
+from app import app, container
+
+class FakeCallAutomationClient:
+    def connect_call(self, *args, **kwargs):
+        class Result:
+            call_connection_id = "call-connection-id-456"
+        return Result()
+
+    def get_call_connection(self, call_connection_id: str):
+        class Call:
+            def hang_up(self, is_for_everyone=False):
+                pass
+        return Call()
+    
+    def conclude_analysis(self, call_connection_id: str):
+        pass
+
+class FakeIdentityClient:
+    pass
+
 
 client = TestClient(app)
-service = Service()
 
 class TestBasicHTTP(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        """
+        Override cloud dependencies ONCE before any test runs.
+        """
+        container.call_automation_client.override(
+            providers.Singleton(FakeCallAutomationClient)
+        )
+
+        container.identity_client.override(
+            providers.Singleton(FakeIdentityClient)
+        )
+
+        cls.client = TestClient(app)
+
+    @classmethod
+    def tearDownClass(cls):
+        """
+        Always clean up overrides.
+        """
+        container.call_automation_client.reset_override()
+        container.identity_client.reset_override()
+
     def test_ping(self):
         response = client.get('/ping')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.content, b"pong")
 
     def test_transcription(self):
+        event_id = str(uuid.uuid4())
+        event_time = datetime.now(timezone.utc).isoformat()
+        call_id = "call-connection-id-456"
+
+        payload = [
+            {
+                "id": event_id,
+                "topic": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg/providers/Microsoft.Communication/communicationServices/my-acs",
+                "subject": "calls/1234567890",
+                "data": {
+                    "callConnectionId": call_id,
+                    "serverCallId": "server-call-id-456",
+                    "startedBy": {
+                        "rawId": "8:acs:caller-id",
+                        "communicationUser": {
+                            "id": "caller-id"
+                        }
+                    },
+                    "group": {
+                        "id": "blablabla"
+                    },
+                },
+                "eventType": "Microsoft.Communication.CallStarted",
+                "eventTime": event_time,
+                "dataVersion": "1.0",
+                "metadataVersion": "1"
+            }
+        ]
+
+        response = client.post(
+            "/calls",
+            json=payload,
+            headers={
+                "Content-Type": "application/json"
+            }
+        )
+
+        assert response.status_code == 200
+
         with client.websocket_connect("/ws") as websocket:
             websocket.send_json(
                 { 
                     "kind": "TranscriptionMetadata",
                     "transcriptionMetadata": {
-                        "callConnectionId": "test-call-id",
+                        "callConnectionId": call_id,
                         "subscriptionId": "test-call-id",
                         "locale": "en-US",
                         "locales": ["en-US"],
@@ -82,8 +166,44 @@ class TestBasicHTTP(unittest.TestCase):
             #self.assertEqual(len(websocket.), 1)
         
     def test_basic_detection(self):
-        mock_call_id = str(uuid.uuid4())
-        service._ongoing_calls[mock_call_id] = OngoingCall(call=None)
+        event_id = str(uuid.uuid4())
+        event_time = datetime.now(timezone.utc).isoformat()
+        call_id = "call-connection-id-456"
+
+        payload = [
+            {
+                "id": event_id,
+                "topic": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg/providers/Microsoft.Communication/communicationServices/my-acs",
+                "subject": "calls/1234567890",
+                "data": {
+                    "callConnectionId": call_id,
+                    "serverCallId": "server-call-id-456",
+                    "startedBy": {
+                        "rawId": "8:acs:caller-id",
+                        "communicationUser": {
+                            "id": "caller-id"
+                        }
+                    },
+                    "group": {
+                        "id": "blablabla"
+                    },
+                },
+                "eventType": "Microsoft.Communication.CallStarted",
+                "eventTime": event_time,
+                "dataVersion": "1.0",
+                "metadataVersion": "1"
+            }
+        ]
+
+        response = client.post(
+            "/calls",
+            json=payload,
+            headers={
+                "Content-Type": "application/json"
+            }
+        )
+
+        assert response.status_code == 200
 
         mock_conversation = [
             {
@@ -177,7 +297,7 @@ class TestBasicHTTP(unittest.TestCase):
                 { 
                     "kind": "TranscriptionMetadata",
                     "transcriptionMetadata": {
-                        "callConnectionId": mock_call_id,
+                        "callConnectionId": call_id,
                         "subscriptionId": "test-call-id",
                         "locale": "en-US",
                         "locales": ["en-US"],
@@ -207,10 +327,12 @@ class TestBasicHTTP(unittest.TestCase):
 
                 time.sleep(float(turn["offset_in_seconds"]))
             
-            self.assertEqual(len(service._ongoing_calls), 2)
+        analyser = container.call_analyser()
 
-            naive, enhanced = service._ongoing_calls[mock_call_id].get_final_results()
-            self.assertTrue(naive.answer, "FRAUD") # type: ignore
+        naive, _ = analyser._ongoing_calls[call_id].get_final_results()
+
+        self.assertIsNotNone(naive)
+        self.assertIn(naive.answer, {"FRAUD"}) # type: ignore
 
 if __name__ == "__main__":
     unittest.main()

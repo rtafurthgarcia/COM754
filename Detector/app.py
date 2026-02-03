@@ -1,35 +1,35 @@
+from logging import Logger
 import logging
+from typing import Annotated
 from unittest.mock import call
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, Response
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, Response, Depends
 from fastapi.responses import JSONResponse
-from models import Acknowledgment, CallEnded, CallStarted, SubscriptionValidation, TranscriptionData, TranscriptionMetadata, deserialise_event, deserialise_ws_message
+from Detector.callanalyser import CallAnalyser
+from models import Acknowledgment, CallEnded, CallStarted, ConnectionManager, SubscriptionValidation, TranscriptionData, TranscriptionMetadata, deserialise_event, deserialise_ws_message
 import uvicorn
-
-from service import Service
-
-class ConnectionManager:
-    def __init__(self):
-        self.active_connections: list[WebSocket] = []
-        self.runner_active = False
-
-    async def connect(self, websocket: WebSocket):
-        await websocket.accept()
-        self.active_connections.append(websocket)
-
-    def remove(self, websocket: WebSocket):
-        self.active_connections.remove(websocket)
+from dependency_injector.wiring import Provide, inject
+from container import Container
 
 app = FastAPI()
+container = Container()
+container.wire(modules=[__name__])
 manager = ConnectionManager()
 logger = logging.getLogger("uvicorn.error")
-service = Service()
+
+def get_service() -> CallAnalyser:
+    return container.call_analyser()
 
 @app.get("/ping")
 async def pong_handler(request: Request):
     return Response(content="pong", status_code=200)
 
+
 @app.post("/calls")
-async def confirm_calls_handler(request: Request):
+@inject
+async def confirm_calls_handler(
+    request: Request,
+    call_analyser: CallAnalyser = Depends(get_service) 
+):
     events = await request.json()
 
     for raw_event in events:
@@ -45,11 +45,11 @@ async def confirm_calls_handler(request: Request):
 
         if isinstance(event, CallStarted):
             logger.info(f"{__name__}: Joining call {event.group_id}")
-            service.join_call(event)
+            call_analyser.join_call(event)
 
         if isinstance(event, CallEnded):
             logger.info(f"{__name__}: Leaving call {event.group_id}")
-            service.leave_call(event)
+            call_analyser.leave_call(event)
 
         if isinstance(event, Acknowledgment):
             logger.info(f"{__name__}: Received acknowledgment of type {event.type}")
@@ -57,7 +57,11 @@ async def confirm_calls_handler(request: Request):
     return Response(status_code=200)
 
 @app.websocket("/ws")
-async def transcription_handler(websocket: WebSocket):
+@inject
+async def transcription_handler(
+    websocket: WebSocket,
+    call_analyser: CallAnalyser = Depends(get_service),
+):
     await manager.connect(websocket)
     logger.info(f"{__name__}: connection received from {websocket.client or "unknown host?"}")
     call_connection_id = None 
@@ -72,7 +76,7 @@ async def transcription_handler(websocket: WebSocket):
                 call_connection_id = message.callConnectionId
             elif (isinstance(message, TranscriptionData) and call_connection_id is not None):
                 logger.info(f"{__name__}: {call_connection_id}: call is being analysed...")
-                service.analyse_call_for_vishing_naive(call_connection_id, message)
+                call_analyser.analyse_call_for_vishing_naive(call_connection_id, message)
         
     except WebSocketDisconnect:
         logger.info(f"{__name__}: disconnected")
@@ -80,7 +84,7 @@ async def transcription_handler(websocket: WebSocket):
         logger.info(f"{__name__}: closed unexpectedly due to an error: {e}")
     finally:
         if (call_connection_id is not None):
-            service.conclude_analysis(call_connection_id)
+            call_analyser.conclude_analysis(call_connection_id)
         manager.remove(websocket)
 
 if __name__ == "__main__":

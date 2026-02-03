@@ -97,7 +97,7 @@ def split_audio_file(src: str, dest: str, conversation: OrderedDict):
         count += 1
         print("Split conversation into {}".format(export_file))
 
-# Conversion to wav is required because diarisation service doesnt support mp3 files
+# Conversion to wav is required because diarisation call_analyser doesnt support mp3 files
 def convert_existing_mp3s(src: str, dest: str):
     files = [f for f in os.listdir(src) if os.path.isfile(os.path.join(src, f))]
 
