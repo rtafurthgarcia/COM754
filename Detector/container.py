@@ -1,6 +1,7 @@
 import logging
 from sys import api_version
 from azure.identity import DefaultAzureCredential
+from azure.servicebus import ServiceBusClient
 from dependency_injector import containers, providers
 from openai import AsyncAzureOpenAI
 
@@ -36,10 +37,16 @@ class Container(containers.DeclarativeContainer):
         api_key=providers.Callable(lambda s: s.ai_key, secrets),
     )
 
+    servicebus_client = providers.Singleton(
+        ServiceBusClient.from_connection_string,
+        conn_str=providers.Callable(lambda s: s.sb_connectionstring, secrets)
+    )
+
     call_analyser = providers.Singleton(
         CallAnalyser,
         call_automation_client=call_automation_client,
         identity_client=identity_client,
+        servicebus_client=servicebus_client,
         ai_client=ai_client,
         local_endpoint=providers.Callable(lambda s: s.dt_endpoint, secrets),
     )

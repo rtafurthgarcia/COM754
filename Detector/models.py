@@ -1,5 +1,6 @@
 from collections import OrderedDict
 from dataclasses import dataclass, field
+import dataclasses
 import json
 import time
 from typing import List, Literal, Optional, Tuple
@@ -203,6 +204,7 @@ class SubscriptionValidation:
 
 @dataclass
 class TurnOfConversation:
+    group_id: str 
     speaker: str
     text: str
     naive_result: Optional[FinalDetectorResults] = None
@@ -211,6 +213,7 @@ class TurnOfConversation:
 
 @dataclass
 class OngoingCall:
+    group_id: str 
     call: CallConnectionClient | None
     conversation: OrderedDict[float, TurnOfConversation] = field(default_factory=OrderedDict)
     start_timestamp: float = time.time()

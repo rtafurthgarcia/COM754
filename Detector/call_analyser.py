@@ -1,10 +1,14 @@
 
+import asyncio
+import json
 import logging
 import time
 from azure.communication.callautomation import CallAutomationClient, TranscriptionOptions
 from azure.communication.identity import CommunicationIdentityClient
 from azure.core.exceptions import ServiceResponseError
+from azure.servicebus import ServiceBusClient, ServiceBusMessage
 from openai import AsyncAzureOpenAI
+from dataclasses import asdict
 from models import CallStarted, FinalDetectorResults, IntermediateEnhancedDetectorResults, OngoingCall, TranscriptionData, TurnOfConversation, get_prompts
 
 logger = logging.getLogger("uvicorn.error")
@@ -12,28 +16,33 @@ logger = logging.getLogger("uvicorn.error")
 class CallAnalyser:
     DETECTOR_MODEL = "gpt-5-mini"
     TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe"
+    QUEUE_NAME = "detection-results"
 
     def __init__(
         self,
         call_automation_client: CallAutomationClient,
         identity_client: CommunicationIdentityClient,
         ai_client: AsyncAzureOpenAI,
+        servicebus_client: ServiceBusClient, 
         local_endpoint: str
     ):
         self._call_automation_client = call_automation_client
         self._identity_client = identity_client
-        self.ai_client = ai_client
-        self.local_endpoint = local_endpoint
-        self.ai_endpoint = ai_client.base_url.scheme
+        self._ai_client = ai_client
+        self._servicebus_client = servicebus_client
+        self._servicebus_sender = servicebus_client.get_queue_sender(self.QUEUE_NAME)
+        self._local_endpoint = local_endpoint
+        self._ai_endpoint = ai_client.base_url.scheme
 
         self._ongoing_calls: dict[str, OngoingCall] = {}
+        self._lock = asyncio.Lock()
     
     def join_call(self, call: CallStarted):
         accepted_call = self._call_automation_client.connect_call(
             group_call_id=call.group_id,
-            callback_url=f"https://{self.local_endpoint}/calls",
+            callback_url=f"https://{self._local_endpoint}/calls",
             transcription=TranscriptionOptions(
-                transport_url=f"wss://{self.local_endpoint}/ws",
+                transport_url=f"wss://{self._local_endpoint}/ws",
                 transport_type="websocket",
                 locale="en-US",
                 start_transcription=True,
@@ -42,14 +51,16 @@ class CallAnalyser:
                 enable_sentiment_analysis=False,
                 speech_recognition_model_endpoint_id=self.TRANSCRIPTION_MODEL
             ),
-            cognitive_services_endpoint=self.ai_endpoint)
+            cognitive_services_endpoint=self._ai_endpoint)
 
         if (accepted_call.call_connection_id is None):
             logger.error(f"{__name__}: No call connection ID found")
             raise ServiceResponseError(f"{__name__}: No call connection ID found")
 
         self._ongoing_calls[accepted_call.call_connection_id] = OngoingCall(
-            call=self._call_automation_client.get_call_connection(accepted_call.call_connection_id))
+            call=self._call_automation_client.get_call_connection(accepted_call.call_connection_id),
+            group_id=call.group_id
+        )
         
         return accepted_call.call_connection_id
 
@@ -74,6 +85,7 @@ class CallAnalyser:
     async def run_analysis(self, call_id: str, new_transcription: TranscriptionData): 
         timeset = time.time() - self._ongoing_calls[call_id].start_timestamp
         self._ongoing_calls[call_id].conversation[timeset] = TurnOfConversation(
+            group_id=self._ongoing_calls[call_id].group_id,
             speaker=new_transcription.participantRawID, 
             text=new_transcription.text
         )
@@ -106,10 +118,12 @@ class CallAnalyser:
             self._ongoing_calls[call_id].conversation[timeset].enhanced_result = FinalDetectorResults(answer="FRAUD")
         else:
             self._ongoing_calls[call_id].conversation[timeset].enhanced_result = FinalDetectorResults(answer="SAFE")
+
+        await self._send_result(self._ongoing_calls[call_id].conversation[timeset])
         
     async def _analyse_call_for_vishing(self, call_id: str, prompt: str, return_type):
         content = str(self._ongoing_calls[call_id].conversation_to_str())
-        response = await self.ai_client.responses.parse(
+        response = await self._ai_client.responses.parse(
             model=self.DETECTOR_MODEL,
             store=False,
             reasoning={"effort": "medium"},
@@ -131,3 +145,8 @@ class CallAnalyser:
             logger.error(f"{__name__}: {call_id}: failed to assess this bit of conversation.")
 
         return response.output_parsed
+    
+    async def _send_result(self, turn: TurnOfConversation):
+        async with self._lock:
+            self._servicebus_sender.send_messages(message=ServiceBusMessage(json.dumps(asdict(turn)))) 
+            logger.info(f"{__name__}: Group #{turn.group_id}: notified caller-callee system")

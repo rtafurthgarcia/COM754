@@ -1,15 +1,19 @@
 # tests/test_app.py
 
+import json
 import unittest
 import uuid
 import time
 from datetime import datetime, timezone
 
+from azure.servicebus import ServiceBusClient
 from fastapi.testclient import TestClient
 from dependency_injector import providers
 
+from Detector import secrets_provider
 from Detector.app import create_app
 from Detector.container import Container
+from Detector.models import TurnOfConversation
 
 class FakeCallAutomationClient:
     def connect_call(self, *args, **kwargs):
@@ -46,6 +50,12 @@ class TestBasicHTTP(unittest.TestCase):
             providers.Singleton(FakeIdentityClient)
         )
 
+        sb_client = cls.container.servicebus_client()
+        cls.servicebus_client = ServiceBusClient(
+            fully_qualified_namespace=sb_client.fully_qualified_namespace,  # type: ignore
+            credential=sb_client._credential # type: ignore
+        )
+
         app = create_app(cls.container)
         cls.client = TestClient(app)
 
@@ -65,7 +75,7 @@ class TestBasicHTTP(unittest.TestCase):
     async def test_2_basic_prompting(self):
         analyser = self.container.call_analyser()
 
-        response = await analyser.ai_client.responses.parse(
+        response = await analyser._ai_client.responses.parse(
             model=analyser.DETECTOR_MODEL,
             store=False,
             reasoning={"effort": "medium"},
@@ -428,17 +438,21 @@ class TestBasicHTTP(unittest.TestCase):
                 )
 
                 time.sleep(float(turn["offset_in_seconds"]))
-            
-        analyser = self.container.call_analyser()
+        
+        counter = 0
+        last_result: TurnOfConversation | None = None
+        with self.servicebus_client.get_queue_receiver("detection-results", max_wait_time=60) as receiver:
+            for msg in receiver:  # ServiceBusReceiver instance is a generator.
+                last_result = TurnOfConversation(**json.loads(msg.body))
+                counter += 1
 
-        naive, enhanced = analyser._ongoing_calls[call_id].get_final_results()
-
-        self.assertIsNotNone(naive)
-        self.assertIsNotNone(enhanced)
-        self.assertEqual(len(analyser._ongoing_calls[call_id].conversation), len(mock_conversation))
-        self.assertEqual(naive.answer, "FRAUD") # type: ignore
-        self.assertEqual(enhanced.answer, "FRAUD") # type: ignore
-        analyser._ongoing_calls.clear()
+        self.assertIsNotNone(last_result)
+        self.assertIsNotNone(last_result.naive_result) # type: ignore
+        self.assertIsNotNone(last_result.enhanced_result) # type: ignore
+        self.assertEqual(counter, len(mock_conversation))
+        self.assertEqual(last_result.naive_result.answer, "FRAUD") # type: ignore
+        self.assertEqual(last_result.enhanced_result.answer, "FRAUD") # type: ignore
+        #analyser._ongoing_calls.clear()
 
 
 if __name__ == "__main__":

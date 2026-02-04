@@ -7,8 +7,8 @@ import os
 class AppSecrets:
     cs_endpoint: str
     cs_key: str
-    sbus_endpoint: str
-    sbus_connection_string: str
+    sb_endpoint: str
+    sb_connectionstring: str
     dt_endpoint: str
     ai_endpoint: str
     ai_key: str
@@ -25,9 +25,9 @@ class KeyVaultSecretsProvider:
         return AppSecrets(
             cs_endpoint=self._client.get_secret("com754-cs-endpoint").value or "",
             cs_key=self._client.get_secret("com754-cs-key").value or "",
-            sbus_endpoint=self._client.get_secret("com754-sbus-endpoint").value or "",
-            sbus_connection_string=self._client.get_secret("com754-sbus-connectionstring").value or "",
             dt_endpoint=self._client.get_secret("com754-dt-endpoint").value or "",
             ai_endpoint=self._client.get_secret("com754-ai-endpoint").value or "",
             ai_key=self._client.get_secret("com754-ai-key").value or "",
+            sb_endpoint=self._client.get_secret("com754-sb-endpoint").value or "",
+            sb_connectionstring=self._client.get_secret("com754-sb-connectionstring").value or "",
         )
