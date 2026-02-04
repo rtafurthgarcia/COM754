@@ -12,7 +12,7 @@ from openai import conversations
 from pydantic import BaseModel
 
 class FinalDetectorResults(BaseModel):
-    answer: Literal["SAFE", "FRAUD", "UNCERTAIN"]
+    answer: Literal["SAFE", "FRAUD"]
     timestamp: float = time.time()
 
 class IntermediateEnhancedDetectorResults(BaseModel):
@@ -23,7 +23,8 @@ def get_prompts():
         "naive": naive_prompt,
         "authority": authority_prompt,
         "social_proof": social_proof_prompt,
-        "distraction": distraction_prompt
+        "distraction": distraction_prompt,
+        "prohibited": prohibited_prompt
     }
 
 naive_prompt = """
@@ -31,8 +32,7 @@ naive_prompt = """
     Please carefully analyze the suspicious features in the conversation. 
     If it is a fraud call, please only return "FRAUD". 
     If it is a normal call, please only return "SAFE". 
-    If there is insufficient information (e.g., it is not yet obvious that the fraud is present), 
-    please return "UNCERTAIN". Do not return anything else.
+    Do not return anything else.
 """
 
 authority_prompt = """
@@ -73,12 +73,13 @@ distraction_prompt = """
     If one or many seems to be true, return "TRUE", otherwise, return "FALSE".
 """
 
-"""if (results.authority_detected or results.distraction_detected or results.social_proof_detected) and results.sensitive_requested:
-return FinalDetectorResults(answer="FRAUD")
-elif (results.authority_detected or results.distraction_detected or results.social_proof_detected) or results.sensitive_requested:
-return FinalDetectorResults(answer="UNCERTAIN")
-else:
-return FinalDetectorResults(answer="SAFE")"""
+prohibited_prompt = """
+    Please analyze the call content and detect whether the caller is requesting typically sensitive or prohibited information common in voice phishing. 
+    You can determine so by answering those questions:
+        - Does the caller request information that is typically considered too sensitive to be transfered over the phone?
+        - Does the caller request information that is not allowed to be revealed due to data protection or data privacy laws?
+    If one or many seems to be true, return "TRUE", otherwise, return "FALSE".
+"""
 
 @dataclass
 class IncomingCall:

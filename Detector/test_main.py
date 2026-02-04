@@ -54,6 +54,10 @@ class TestBasicHTTP(unittest.TestCase):
         """
         container.call_automation_client.reset_override()
         container.identity_client.reset_override()
+        
+    def tearDown(self):
+        container.reset_singletons()
+        container.unwire()
 
     def test_ping(self):
         response = client.get('/ping')
@@ -61,6 +65,7 @@ class TestBasicHTTP(unittest.TestCase):
         self.assertEqual(response.content, b"pong")
 
     def test_transcription(self):
+        analyser = container.call_analyser()
         event_id = str(uuid.uuid4())
         event_time = datetime.now(timezone.utc).isoformat()
         call_id = "call-connection-id-456"
@@ -164,6 +169,7 @@ class TestBasicHTTP(unittest.TestCase):
             )
 
             #self.assertEqual(len(websocket.), 1)
+            analyser._ongoing_calls.clear()
 
     def test_basic_prompting(self):
         analyser = container.call_analyser()
@@ -183,8 +189,191 @@ class TestBasicHTTP(unittest.TestCase):
 
         self.assertIsNotNone(response.output_text)
         self.assertEqual(response.output_text, "meow meow meow")
+        analyser._ongoing_calls.clear()
+    
+    def test_detection_safe(self):
+        analyser = container.call_analyser()
+        event_id = str(uuid.uuid4())
+        event_time = datetime.now(timezone.utc).isoformat()
+        call_id = "call-connection-id-456"
+
+        payload = [
+            {
+                "id": event_id,
+                "topic": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg/providers/Microsoft.Communication/communicationServices/my-acs",
+                "subject": "calls/9876543210",
+                "data": {
+                    "callConnectionId": call_id,
+                    "serverCallId": "server-call-id-students",
+                    "startedBy": {
+                        "rawId": "8:acs:student-a",
+                        "communicationUser": {
+                            "id": "student-a"
+                        }
+                    },
+                    "group": {
+                        "id": "students-group"
+                    },
+                },
+                "eventType": "Microsoft.Communication.CallStarted",
+                "eventTime": event_time,
+                "dataVersion": "1.0",
+                "metadataVersion": "1"
+            }
+        ]
+
+        response = client.post(
+            "/calls",
+            json=payload,
+            headers={"Content-Type": "application/json"}
+        )
+
+        assert response.status_code == 200
+
+        mock_conversation = [
+            {
+                "text": "Hey, are you already on campus?",
+                "speaker": "8:acs:student-a",
+                "offset_in_seconds": 6
+            },
+            {
+                "text": "Yeah, I just got to the library. It’s packed today.",
+                "speaker": "8:acs:student-b",
+                "offset_in_seconds": 7
+            },
+            {
+                "text": "Same here yesterday. Are you studying for the databases exam?",
+                "speaker": "8:acs:student-a",
+                "offset_in_seconds": 9
+            },
+            {
+                "text": "Unfortunately yes. I still don’t fully get normalization.",
+                "speaker": "8:acs:student-b",
+                "offset_in_seconds": 10
+            },
+            {
+                "text": "Third normal form is the one that always gets people.",
+                "speaker": "8:acs:student-a",
+                "offset_in_seconds": 11
+            },
+            {
+                "text": "Exactly. I mix it up with BCNF every single time.",
+                "speaker": "8:acs:student-b",
+                "offset_in_seconds": 10
+            },
+            {
+                "text": "Did you watch the revision lecture recording?",
+                "speaker": "8:acs:student-a",
+                "offset_in_seconds": 8
+            },
+            {
+                "text": "Yeah, at one point. The audio quality was terrible though.",
+                "speaker": "8:acs:student-b",
+                "offset_in_seconds": 12
+            },
+            {
+                "text": "Classic. By the way, are we still meeting the rest of the group later?",
+                "speaker": "8:acs:student-a",
+                "offset_in_seconds": 11
+            },
+            {
+                "text": "At four, I think. For the software engineering project.",
+                "speaker": "8:acs:student-b",
+                "offset_in_seconds": 10
+            },
+            {
+                "text": "Right, the one with the API design report.",
+                "speaker": "8:acs:student-a",
+                "offset_in_seconds": 8
+            },
+            {
+                "text": "Yeah. I finished my part on authentication and error handling.",
+                "speaker": "8:acs:student-b",
+                "offset_in_seconds": 13
+            },
+            {
+                "text": "Nice. I’m still cleaning up the diagrams.",
+                "speaker": "8:acs:student-a",
+                "offset_in_seconds": 9
+            },
+            {
+                "text": "No rush, the deadline is Friday anyway.",
+                "speaker": "8:acs:student-b",
+                "offset_in_seconds": 8
+            },
+            {
+                "text": "True. Are you grabbing lunch on campus?",
+                "speaker": "8:acs:student-a",
+                "offset_in_seconds": 10
+            },
+            {
+                "text": "Probably. The cafeteria food isn’t great but it’s cheap.",
+                "speaker": "8:acs:student-b",
+                "offset_in_seconds": 11
+            },
+            {
+                "text": "I might get a sandwich and coffee. I barely slept.",
+                "speaker": "8:acs:student-a",
+                "offset_in_seconds": 12
+            },
+            {
+                "text": "Same. Too much last-minute revision.",
+                "speaker": "8:acs:student-b",
+                "offset_in_seconds": 9
+            },
+            {
+                "text": "Alright, I’ll let you study. See you at four?",
+                "speaker": "8:acs:student-a",
+                "offset_in_seconds": 10
+            },
+            {
+                "text": "Yeah, see you later. Good luck revising.",
+                "speaker": "8:acs:student-b",
+                "offset_in_seconds": 9
+            },
+        ]
+
+        with client.websocket_connect("/ws") as websocket:
+            websocket.send_json(
+                {
+                    "kind": "TranscriptionMetadata",
+                    "transcriptionMetadata": {
+                        "callConnectionId": call_id,
+                        "subscriptionId": "test-student-call",
+                        "locale": "en-US",
+                        "locales": ["en-US"],
+                        "correlationId": "test-correlation-id",
+                        "piiRedactionOptions": None
+                    }
+                }
+            )
+
+            for turn in mock_conversation:
+                websocket.send_json(
+                    {
+                        "kind": "TranscriptionData",
+                        "transcriptionData": {
+                            "text": turn["text"],
+                            "format": "Display",
+                            "confidence": 0.93,
+                            "offset": float(turn["offset_in_seconds"]) * 1_000_000,
+                            "duration": 12345678,
+                            "participantRawID": turn["speaker"],
+                            "resultStatus": "Recognized",
+                            "sentimentAnalysisResult": "Neutral",
+                            "words": []
+                        }
+                    }
+                )
+                time.sleep(float(turn["offset_in_seconds"]))
+
+        naive, _ = analyser._ongoing_calls[call_id].get_final_results()
+
+        self.assertIsNotNone(naive)
+        self.assertIn(naive.answer, {"SAFE"}) # type: ignore
+        analyser._ongoing_calls.clear()
         
-    def test_basic_detection(self):
+    def test_detection_fraud(self):
         event_id = str(uuid.uuid4())
         event_time = datetime.now(timezone.utc).isoformat()
         call_id = "call-connection-id-456"
@@ -352,6 +541,8 @@ class TestBasicHTTP(unittest.TestCase):
 
         self.assertIsNotNone(naive)
         self.assertIn(naive.answer, {"FRAUD"}) # type: ignore
+        analyser._ongoing_calls.clear()
+
 
 if __name__ == "__main__":
     unittest.main()

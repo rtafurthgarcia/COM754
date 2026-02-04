@@ -73,42 +73,44 @@ class CallAnalyser:
     def conclude_analysis(self, call_id: str):
         self._ongoing_calls[call_id].end_timestamp = time.time()
 
-    def analyse_call_for_vishing_naive(self, call_id: str, new_transcription: TranscriptionData):
+    async def run_analysis(self, call_id: str, new_transcription: TranscriptionData): 
         timeset = time.time() - self._ongoing_calls[call_id].start_timestamp
         self._ongoing_calls[call_id].conversation[timeset] = TurnOfConversation(
             speaker=new_transcription.participantRawID, 
             text=new_transcription.text
         )
 
-        content = str(self._ongoing_calls[call_id].conversation_to_str())
-        response = self.ai_client.responses.parse(
-            model=self.DETECTOR_MODEL,
-            store=False,
-            reasoning={"effort": "medium"},
-            instructions=get_prompts()["naive"],
-            input=[
-                {
-                    "role": "user",
-                    "content": content
-                }
-            ],
-            text_format=FinalDetectorResults,
-            timeout=60
+        future_naive = self._analyse_call_for_vishing(
+            call_id, get_prompts()["naive"], FinalDetectorResults
         )
 
-        logger.info(f"{__name__}: {call_id}: {content}")
-        if (response.output_parsed is not None and response.output_parsed.answer is not None):
-            logger.info(f"{__name__}: {call_id}: verdict: {response.output_parsed.answer}")
-            self._ongoing_calls[call_id].conversation[timeset].naive_result = response.output_parsed
+        future_prohibited = self._analyse_call_for_vishing(
+            call_id, get_prompts()["prohibited"], bool
+        )
+
+        future_authority = self._analyse_call_for_vishing(
+            call_id, get_prompts()["authority"], bool
+        )
+
+        future_social_proof = self._analyse_call_for_vishing(
+            call_id, get_prompts()["social_proof"], bool
+        )
+
+        future_distraction = self._analyse_call_for_vishing(
+            call_id, get_prompts()["distraction"], bool
+        )
+
+        # naive
+        self._ongoing_calls[call_id].conversation[timeset].naive_result = await future_naive
+
+        # enhanced
+        if (await future_authority or await future_distraction or await future_social_proof) and await future_prohibited:
+            self._ongoing_calls[call_id].conversation[timeset].enhanced_result = FinalDetectorResults(answer="FRAUD")
         else:
-            logger.error(f"{__name__}: {call_id}: failed to assess this bit of conversation.")
-    
-    def _analyse_call_for_vishing(
-        self, 
-        prompt: str, 
-        conversation: OrderedDict,
-        response_format
-    ) -> FinalDetectorResults | None:
+            self._ongoing_calls[call_id].conversation[timeset].enhanced_result = FinalDetectorResults(answer="SAFE")
+        
+    async def _analyse_call_for_vishing(self, call_id: str, prompt: str, return_type):
+        content = str(self._ongoing_calls[call_id].conversation_to_str())
         response = self.ai_client.responses.parse(
             model=self.DETECTOR_MODEL,
             store=False,
@@ -117,10 +119,17 @@ class CallAnalyser:
             input=[
                 {
                     "role": "user",
-                    "content": str(conversation)
+                    "content": content
                 }
             ],
-            text_format=response_format
+            text_format=return_type,
+            timeout=60
         )
+
+        logger.info(f"{__name__}: {call_id}: {content}")
+        if (response.output_parsed is not None and response.output_parsed.answer is not None):
+            logger.info(f"{__name__}: {call_id}: verdict: {response.output_parsed.answer}")
+        else:
+            logger.error(f"{__name__}: {call_id}: failed to assess this bit of conversation.")
 
         return response.output_parsed

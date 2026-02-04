@@ -4,7 +4,7 @@ from typing import Annotated
 from unittest.mock import call
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, Response, Depends
 from fastapi.responses import JSONResponse
-from Detector.callanalyser import CallAnalyser
+from Detector.call_analyser import CallAnalyser
 from models import Acknowledgment, CallEnded, CallStarted, ConnectionManager, SubscriptionValidation, TranscriptionData, TranscriptionMetadata, deserialise_event, deserialise_ws_message
 import uvicorn
 from dependency_injector.wiring import Provide, inject
@@ -76,7 +76,7 @@ async def transcription_handler(
                 call_connection_id = message.callConnectionId
             elif (isinstance(message, TranscriptionData) and call_connection_id is not None):
                 logger.info(f"{__name__}: {call_connection_id}: call is being analysed...")
-                call_analyser.analyse_call_for_vishing_naive(call_connection_id, message)
+                await call_analyser.run_analysis(call_connection_id, message)
         
     except WebSocketDisconnect:
         logger.info(f"{__name__}: disconnected")

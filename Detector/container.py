@@ -4,8 +4,8 @@ from azure.identity import DefaultAzureCredential
 from dependency_injector import containers, providers
 from openai import AzureOpenAI
 
-from secretsprovider import KeyVaultSecretsProvider
-from Detector.callanalyser import CallAnalyser
+from Detector.secrets_provider import KeyVaultSecretsProvider
+from Detector.call_analyser import CallAnalyser
 from azure.communication.callautomation import CallAutomationClient
 from azure.communication.identity import CommunicationIdentityClient
 
