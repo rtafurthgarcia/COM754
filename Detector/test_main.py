@@ -8,7 +8,8 @@ from datetime import datetime, timezone
 from fastapi.testclient import TestClient
 from dependency_injector import providers
 
-from app import app, container
+from Detector.app import create_app
+from Detector.container import Container
 
 class FakeCallAutomationClient:
     def connect_call(self, *args, **kwargs):
@@ -29,22 +30,23 @@ class FakeIdentityClient:
     pass
 
 
-client = TestClient(app)
-
 class TestBasicHTTP(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """
         Override cloud dependencies ONCE before any test runs.
         """
-        container.call_automation_client.override(
+        cls.container = Container()
+
+        cls.container.call_automation_client.override(
             providers.Singleton(FakeCallAutomationClient)
         )
 
-        container.identity_client.override(
+        cls.container.identity_client.override(
             providers.Singleton(FakeIdentityClient)
         )
 
+        app = create_app(cls.container)
         cls.client = TestClient(app)
 
     @classmethod
@@ -52,129 +54,18 @@ class TestBasicHTTP(unittest.TestCase):
         """
         Always clean up overrides.
         """
-        container.call_automation_client.reset_override()
-        container.identity_client.reset_override()
-        
-    def tearDown(self):
-        container.reset_singletons()
-        container.unwire()
+        cls.container.call_automation_client.reset_override()
+        cls.container.identity_client.reset_override()
 
-    def test_ping(self):
-        response = client.get('/ping')
+    def test_1_ping(self):
+        response = self.client.get('/ping')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.content, b"pong")
 
-    def test_transcription(self):
-        analyser = container.call_analyser()
-        event_id = str(uuid.uuid4())
-        event_time = datetime.now(timezone.utc).isoformat()
-        call_id = "call-connection-id-456"
+    async def test_2_basic_prompting(self):
+        analyser = self.container.call_analyser()
 
-        payload = [
-            {
-                "id": event_id,
-                "topic": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg/providers/Microsoft.Communication/communicationServices/my-acs",
-                "subject": "calls/1234567890",
-                "data": {
-                    "callConnectionId": call_id,
-                    "serverCallId": "server-call-id-456",
-                    "startedBy": {
-                        "rawId": "8:acs:caller-id",
-                        "communicationUser": {
-                            "id": "caller-id"
-                        }
-                    },
-                    "group": {
-                        "id": "blablabla"
-                    },
-                },
-                "eventType": "Microsoft.Communication.CallStarted",
-                "eventTime": event_time,
-                "dataVersion": "1.0",
-                "metadataVersion": "1"
-            }
-        ]
-
-        response = client.post(
-            "/calls",
-            json=payload,
-            headers={
-                "Content-Type": "application/json"
-            }
-        )
-
-        assert response.status_code == 200
-
-        with client.websocket_connect("/ws") as websocket:
-            websocket.send_json(
-                { 
-                    "kind": "TranscriptionMetadata",
-                    "transcriptionMetadata": {
-                        "callConnectionId": call_id,
-                        "subscriptionId": "test-call-id",
-                        "locale": "en-US",
-                        "locales": ["en-US"],
-                        "correlationId": "test-correlation-id",
-                        "piiRedactionOptions": None
-                    }
-                }
-            )
-
-            websocket.send_json(
-                {
-                    "kind": "TranscriptionData",
-                    "transcriptionData": {
-                        "text": "Hello, this is a test transcription",
-                        "format": "Display",
-                        "confidence": 0.92,
-                        "offset": 12345678,
-                        "duration": 2345678,
-                        "participantRawID": "8:acs:00000000-0000-0000-0000-000000000000",
-                        "resultStatus": "Recognized",
-                        "sentimentAnalysisResult": "Neutral",
-                        "words": [
-                            {
-                                "text": "Hello",
-                                "offset": 12345678,
-                                "duration": 345678
-                            },
-                            {
-                                "text": "this",
-                                "offset": 12791356,
-                                "duration": 210000
-                            },
-                            {
-                                "text": "is",
-                                "offset": 13001356,
-                                "duration": 150000
-                            },
-                            {
-                                "text": "a",
-                                "offset": 13151356,
-                                "duration": 90000
-                            },
-                            {
-                                "text": "test",
-                                "offset": 13241356,
-                                "duration": 300000
-                            },
-                            {
-                                "text": "transcription",
-                                "offset": 13541356,
-                                "duration": 600000
-                            }
-                        ]
-                    }
-                }
-            )
-
-            #self.assertEqual(len(websocket.), 1)
-            analyser._ongoing_calls.clear()
-
-    def test_basic_prompting(self):
-        analyser = container.call_analyser()
-
-        response = analyser.ai_client.responses.parse(
+        response = await analyser.ai_client.responses.parse(
             model=analyser.DETECTOR_MODEL,
             store=False,
             reasoning={"effort": "medium"},
@@ -191,8 +82,8 @@ class TestBasicHTTP(unittest.TestCase):
         self.assertEqual(response.output_text, "meow meow meow")
         analyser._ongoing_calls.clear()
     
-    def test_detection_safe(self):
-        analyser = container.call_analyser()
+    def test_3_detection_safe(self):
+        analyser = self.container.call_analyser()
         event_id = str(uuid.uuid4())
         event_time = datetime.now(timezone.utc).isoformat()
         call_id = "call-connection-id-456"
@@ -222,7 +113,7 @@ class TestBasicHTTP(unittest.TestCase):
             }
         ]
 
-        response = client.post(
+        response = self.client.post(
             "/calls",
             json=payload,
             headers={"Content-Type": "application/json"}
@@ -333,7 +224,7 @@ class TestBasicHTTP(unittest.TestCase):
             },
         ]
 
-        with client.websocket_connect("/ws") as websocket:
+        with self.client.websocket_connect("/ws") as websocket:
             websocket.send_json(
                 {
                     "kind": "TranscriptionMetadata",
@@ -367,13 +258,16 @@ class TestBasicHTTP(unittest.TestCase):
                 )
                 time.sleep(float(turn["offset_in_seconds"]))
 
-        naive, _ = analyser._ongoing_calls[call_id].get_final_results()
+        naive, enhanced = analyser._ongoing_calls[call_id].get_final_results()
 
         self.assertIsNotNone(naive)
-        self.assertIn(naive.answer, {"SAFE"}) # type: ignore
+        self.assertIsNotNone(enhanced)
+        self.assertEqual(len(analyser._ongoing_calls[call_id].conversation), len(mock_conversation))
+        self.assertEqual(naive.answer, "SAFE") # type: ignore
+        self.assertEqual(enhanced.answer, "SAFE") # type: ignore
         analyser._ongoing_calls.clear()
         
-    def test_detection_fraud(self):
+    def test_4_detection_fraud(self):
         event_id = str(uuid.uuid4())
         event_time = datetime.now(timezone.utc).isoformat()
         call_id = "call-connection-id-456"
@@ -403,7 +297,7 @@ class TestBasicHTTP(unittest.TestCase):
             }
         ]
 
-        response = client.post(
+        response = self.client.post(
             "/calls",
             json=payload,
             headers={
@@ -500,7 +394,7 @@ class TestBasicHTTP(unittest.TestCase):
             },
         ]
 
-        with client.websocket_connect("/ws") as websocket:
+        with self.client.websocket_connect("/ws") as websocket:
             websocket.send_json(
                 { 
                     "kind": "TranscriptionMetadata",
@@ -535,12 +429,15 @@ class TestBasicHTTP(unittest.TestCase):
 
                 time.sleep(float(turn["offset_in_seconds"]))
             
-        analyser = container.call_analyser()
+        analyser = self.container.call_analyser()
 
-        naive, _ = analyser._ongoing_calls[call_id].get_final_results()
+        naive, enhanced = analyser._ongoing_calls[call_id].get_final_results()
 
         self.assertIsNotNone(naive)
-        self.assertIn(naive.answer, {"FRAUD"}) # type: ignore
+        self.assertIsNotNone(enhanced)
+        self.assertEqual(len(analyser._ongoing_calls[call_id].conversation), len(mock_conversation))
+        self.assertEqual(naive.answer, "FRAUD") # type: ignore
+        self.assertEqual(enhanced.answer, "FRAUD") # type: ignore
         analyser._ongoing_calls.clear()
 
 

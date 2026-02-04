@@ -1,25 +1,23 @@
 
-from collections import OrderedDict
 import logging
-import os
 import time
 from azure.communication.callautomation import CallAutomationClient, TranscriptionOptions
 from azure.communication.identity import CommunicationIdentityClient
 from azure.core.exceptions import ServiceResponseError
-from openai import OpenAI
-from models import CallStarted, FinalDetectorResults, OngoingCall, TranscriptionData, TurnOfConversation, get_prompts
+from openai import AsyncAzureOpenAI
+from models import CallStarted, FinalDetectorResults, IntermediateEnhancedDetectorResults, OngoingCall, TranscriptionData, TurnOfConversation, get_prompts
 
 logger = logging.getLogger("uvicorn.error")
 
 class CallAnalyser:
-    DETECTOR_MODEL = "gpt-5.1-chat"
+    DETECTOR_MODEL = "gpt-5-mini"
     TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe"
 
     def __init__(
         self,
         call_automation_client: CallAutomationClient,
         identity_client: CommunicationIdentityClient,
-        ai_client: OpenAI,
+        ai_client: AsyncAzureOpenAI,
         local_endpoint: str
     ):
         self._call_automation_client = call_automation_client
@@ -85,19 +83,19 @@ class CallAnalyser:
         )
 
         future_prohibited = self._analyse_call_for_vishing(
-            call_id, get_prompts()["prohibited"], bool
+            call_id, get_prompts()["prohibited"], IntermediateEnhancedDetectorResults
         )
 
         future_authority = self._analyse_call_for_vishing(
-            call_id, get_prompts()["authority"], bool
+            call_id, get_prompts()["authority"], IntermediateEnhancedDetectorResults
         )
 
         future_social_proof = self._analyse_call_for_vishing(
-            call_id, get_prompts()["social_proof"], bool
+            call_id, get_prompts()["social_proof"], IntermediateEnhancedDetectorResults
         )
 
         future_distraction = self._analyse_call_for_vishing(
-            call_id, get_prompts()["distraction"], bool
+            call_id, get_prompts()["distraction"], IntermediateEnhancedDetectorResults
         )
 
         # naive
@@ -111,7 +109,7 @@ class CallAnalyser:
         
     async def _analyse_call_for_vishing(self, call_id: str, prompt: str, return_type):
         content = str(self._ongoing_calls[call_id].conversation_to_str())
-        response = self.ai_client.responses.parse(
+        response = await self.ai_client.responses.parse(
             model=self.DETECTOR_MODEL,
             store=False,
             reasoning={"effort": "medium"},
