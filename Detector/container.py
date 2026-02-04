@@ -1,7 +1,8 @@
 import logging
+from sys import api_version
 from azure.identity import DefaultAzureCredential
 from dependency_injector import containers, providers
-from openai import OpenAI
+from openai import AzureOpenAI
 
 from secretsprovider import KeyVaultSecretsProvider
 from Detector.callanalyser import CallAnalyser
@@ -29,8 +30,9 @@ class Container(containers.DeclarativeContainer):
     )
 
     ai_client = providers.Singleton(
-        OpenAI,
-        base_url=providers.Callable(lambda s: s.ai_endpoint, secrets),
+        AzureOpenAI,
+        api_version="2025-03-01-preview",
+        azure_endpoint=providers.Callable(lambda s: s.ai_endpoint, secrets),
         api_key=providers.Callable(lambda s: s.ai_key, secrets),
     )
 

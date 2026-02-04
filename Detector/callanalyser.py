@@ -12,7 +12,7 @@ from models import CallStarted, FinalDetectorResults, OngoingCall, Transcription
 logger = logging.getLogger("uvicorn.error")
 
 class CallAnalyser:
-    DETECTOR_MODEL = "gpt-5-mini"
+    DETECTOR_MODEL = "gpt-5.1-chat"
     TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe"
 
     def __init__(

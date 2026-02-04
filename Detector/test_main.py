@@ -164,6 +164,25 @@ class TestBasicHTTP(unittest.TestCase):
             )
 
             #self.assertEqual(len(websocket.), 1)
+
+    def test_basic_prompting(self):
+        analyser = container.call_analyser()
+
+        response = analyser.ai_client.responses.parse(
+            model=analyser.DETECTOR_MODEL,
+            store=False,
+            reasoning={"effort": "medium"},
+            input=[
+                {
+                    "role": "user",
+                    "content": "tell me 'meow meow meow'."
+                }
+            ],
+            timeout=60
+        )
+
+        self.assertIsNotNone(response.output_text)
+        self.assertEqual(response.output_text, "meow meow meow")
         
     def test_basic_detection(self):
         event_id = str(uuid.uuid4())
