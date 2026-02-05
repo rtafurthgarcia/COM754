@@ -2,14 +2,17 @@
 import asyncio
 import json
 import logging
+from pickle import TRUE
+from pyclbr import Class
 import time
+from typing import TypeVar
 from azure.communication.callautomation import CallAutomationClient, TranscriptionOptions
 from azure.communication.identity import CommunicationIdentityClient
 from azure.core.exceptions import ServiceResponseError
 from azure.servicebus import ServiceBusClient, ServiceBusMessage
 from openai import AsyncAzureOpenAI
 from dataclasses import asdict
-from models import CallStarted, FinalDetectorResults, IntermediateEnhancedDetectorResults, OngoingCall, TranscriptionData, TurnOfConversation, get_prompts
+from models import CallStarted, Classification, IntermediateClassification, OngoingCall, TranscriptionData, TurnOfConversation, get_prompts
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -64,64 +67,74 @@ class CallAnalyser:
         
         return accepted_call.call_connection_id
 
-    def leave_call(self, call_id):
+    def leave_call(self, call_id: str):
         if call_id not in self._ongoing_calls.keys():
             #self.logger.inf(f"{__name__}: Call with group ID {call.group_id} not found among ongoing calls")
             # disabled cuz suspected it might be triggered 3 times, for each call has 3 participants
             return
 
         ongoing_call = self._ongoing_calls[call_id]
-        if ongoing_call.call is None:
-            #self.logger.inf(f"{__name__}: Call with group ID {call.group_id} not found among ongoing calls")
-            # disabled cuz suspected it might be triggered 3 times, for each call has 3 participants
-            return
-
         ongoing_call.call.hang_up(is_for_everyone=False)
-        del self._ongoing_calls[call_id]
-
-    def conclude_analysis(self, call_id: str):
-        self._ongoing_calls[call_id].end_timestamp = time.time()
+        #
 
     async def run_analysis(self, call_id: str, new_transcription: TranscriptionData): 
-        timeset = time.time() - self._ongoing_calls[call_id].start_timestamp
-        self._ongoing_calls[call_id].conversation[timeset] = TurnOfConversation(
-            group_id=self._ongoing_calls[call_id].group_id,
+        timestamp = self._ongoing_calls[call_id].add_new_turn(
             speaker=new_transcription.participantRawID, 
             text=new_transcription.text
         )
 
         future_naive = self._analyse_call_for_vishing(
-            call_id, get_prompts()["naive"], FinalDetectorResults
+            call_id, get_prompts()["naive"], Classification
         )
 
         future_prohibited = self._analyse_call_for_vishing(
-            call_id, get_prompts()["prohibited"], IntermediateEnhancedDetectorResults
+            call_id, get_prompts()["prohibited"], IntermediateClassification
         )
 
         future_authority = self._analyse_call_for_vishing(
-            call_id, get_prompts()["authority"], IntermediateEnhancedDetectorResults
+            call_id, get_prompts()["authority"], IntermediateClassification
         )
 
         future_social_proof = self._analyse_call_for_vishing(
-            call_id, get_prompts()["social_proof"], IntermediateEnhancedDetectorResults
+            call_id, get_prompts()["social_proof"], IntermediateClassification
         )
 
         future_distraction = self._analyse_call_for_vishing(
-            call_id, get_prompts()["distraction"], IntermediateEnhancedDetectorResults
+            call_id, get_prompts()["distraction"], IntermediateClassification
         )
 
         # naive
-        self._ongoing_calls[call_id].conversation[timeset].naive_result = await future_naive
+        naive_classification = Classification()
+        enhanced_classification = Classification()
 
         # enhanced
-        if (await future_authority or await future_distraction or await future_social_proof) and await future_prohibited:
-            self._ongoing_calls[call_id].conversation[timeset].enhanced_result = FinalDetectorResults(answer="FRAUD")
-        else:
-            self._ongoing_calls[call_id].conversation[timeset].enhanced_result = FinalDetectorResults(answer="SAFE")
+        try:
+            async with asyncio.timeout(60):
+                results: tuple[Classification, IntermediateClassification, IntermediateClassification, IntermediateClassification, IntermediateClassification] = await asyncio.gather(future_naive, future_authority, future_distraction, future_social_proof, future_prohibited) # type: ignore
 
-        await self._send_result(self._ongoing_calls[call_id].conversation[timeset])
+                naive_classification = results[0]
+
+                worst_timestamp = -1
+                for result in results[1:]:
+                    if (result.timestamp > worst_timestamp):
+                        worst_timestamp = result.timestamp
+
+                if (results[1].answer or results[2].answer or results[3].answer) and results[4].answer:
+                    enhanced_classification = Classification(answer="FRAUD", timestamp=worst_timestamp)
+                else:
+                    enhanced_classification = Classification(answer="SAFE", timestamp=worst_timestamp)
+        except Exception as e:
+            logger.info(f"{__name__}: {call_id}: Failed to asssess this turn of conversation: {e}")
+
+        await self._send_result(
+            self._ongoing_calls[call_id].conclude(
+                timestamp, 
+                naive_classification, 
+                enhanced_classification
+            )
+        ) 
         
-    async def _analyse_call_for_vishing(self, call_id: str, prompt: str, return_type):
+    async def _analyse_call_for_vishing(self, call_id: str, prompt: str, object):
         content = str(self._ongoing_calls[call_id].conversation_to_str())
         response = await self._ai_client.responses.parse(
             model=self.DETECTOR_MODEL,
@@ -134,8 +147,7 @@ class CallAnalyser:
                     "content": content
                 }
             ],
-            text_format=return_type,
-            timeout=60
+            text_format=object,
         )
 
         logger.info(f"{__name__}: {call_id}: {content}")
@@ -144,9 +156,21 @@ class CallAnalyser:
         else:
             logger.error(f"{__name__}: {call_id}: failed to assess this bit of conversation.")
 
-        return response.output_parsed
+        if (isinstance(response.output_parsed, Classification | IntermediateClassification)):
+            response.output_parsed.timestamp = time.time()
+
+        return response.output_parsed 
     
     async def _send_result(self, turn: TurnOfConversation):
         async with self._lock:
-            self._servicebus_sender.send_messages(message=ServiceBusMessage(json.dumps(asdict(turn)))) 
-            logger.info(f"{__name__}: Group #{turn.group_id}: notified caller-callee system")
+            self._servicebus_sender.send_messages(message=ServiceBusMessage(turn.to_json(), subject="TRANSCRIPTION")) 
+            logger.info(f"{__name__}: #{turn.group_id}: {turn.id}:turn assessed.")
+
+    async def notify_end_of_transcription(self, call_id: str):
+        call = self._ongoing_calls[call_id]
+
+        async with self._lock:
+            self._servicebus_sender.send_messages(message=ServiceBusMessage(call_id, subject="END_OF_TRANSCRIPTION")) 
+            logger.info(f"{__name__}: {call.group_id}: End of transcription.")
+
+        del self._ongoing_calls[call_id]

@@ -8,9 +8,9 @@ from azure.servicebus import ServiceBusClient
 from fastapi.testclient import TestClient
 from dependency_injector import providers
 
-from app import create_app
+from application import create_app
 from container import Container
-from models import TurnOfConversation
+from models import EndOfTranscription, TurnOfConversation
 
 class FakeCallAutomationClient:
     def connect_call(self, *args, **kwargs):
@@ -90,7 +90,6 @@ class TestBasicHTTP(unittest.TestCase):
         analyser._ongoing_calls.clear()
     
     def test_3_detection_safe(self):
-        analyser = self.container.call_analyser()
         event_id = str(uuid.uuid4())
         event_time = datetime.now(timezone.utc).isoformat()
         call_id = "call-connection-id-456"
@@ -230,49 +229,69 @@ class TestBasicHTTP(unittest.TestCase):
                 "offset_in_seconds": 9
             },
         ]
-
-        with self.client.websocket_connect("/ws") as websocket:
-            websocket.send_json(
-                {
-                    "kind": "TranscriptionMetadata",
-                    "transcriptionMetadata": {
-                        "callConnectionId": call_id,
-                        "subscriptionId": "test-student-call",
-                        "locale": "en-US",
-                        "locales": ["en-US"],
-                        "correlationId": "test-correlation-id",
-                        "piiRedactionOptions": None
-                    }
-                }
-            )
-
-            for turn in mock_conversation:
+        try:
+            pass
+            with self.client.websocket_connect("/ws") as websocket:
                 websocket.send_json(
                     {
-                        "kind": "TranscriptionData",
-                        "transcriptionData": {
-                            "text": turn["text"],
-                            "format": "Display",
-                            "confidence": 0.93,
-                            "offset": float(turn["offset_in_seconds"]) * 1_000_000,
-                            "duration": 12345678,
-                            "participantRawID": turn["speaker"],
-                            "resultStatus": "Recognized",
-                            "sentimentAnalysisResult": "Neutral",
-                            "words": []
+                        "kind": "TranscriptionMetadata",
+                        "transcriptionMetadata": {
+                            "callConnectionId": call_id,
+                            "subscriptionId": "test-student-call",
+                            "locale": "en-US",
+                            "locales": ["en-US"],
+                            "correlationId": "test-correlation-id",
+                            "piiRedactionOptions": None
                         }
                     }
                 )
-                time.sleep(float(turn["offset_in_seconds"]))
 
-        naive, enhanced = analyser._ongoing_calls[call_id].get_final_results()
+                for turn in mock_conversation:
+                    websocket.send_json(
+                        {
+                            "kind": "TranscriptionData",
+                            "transcriptionData": {
+                                "text": turn["text"],
+                                "format": "Display",
+                                "confidence": 0.93,
+                                "offset": float(turn["offset_in_seconds"]) * 1_000_000,
+                                "duration": 12345678,
+                                "participantRawID": turn["speaker"],
+                                "resultStatus": "Recognized",
+                                "sentimentAnalysisResult": "Neutral",
+                                "words": []
+                            }
+                        }
+                    )
+                    time.sleep(float(turn["offset_in_seconds"]))
+                    
+                websocket.close()
+        except Exception:
+            pass
 
-        self.assertIsNotNone(naive)
-        self.assertIsNotNone(enhanced)
-        self.assertEqual(len(analyser._ongoing_calls[call_id].conversation), len(mock_conversation))
-        self.assertEqual(naive.answer, "SAFE") # type: ignore
-        self.assertEqual(enhanced.answer, "SAFE") # type: ignore
-        analyser._ongoing_calls.clear()
+        counter = 0
+        last_result: TurnOfConversation | None = None
+        transcription_officially_ended = False
+        with self.servicebus_client.get_queue_receiver("detection-results", max_wait_time=60) as receiver:
+            for msg in receiver:  # ServiceBusReceiver instance is a generator.
+                if (msg.subject == "END_OF_TRANSCRIPTION"):
+                    transcription_officially_ended = True
+                    receiver.complete_message(msg)
+                    break
+                last_result = TurnOfConversation(**json.loads(next(msg.body)))
+                counter += 1
+                receiver.complete_message(msg)
+
+        
+        self.assertTrue(transcription_officially_ended, "Transcription never officially ended.")
+        self.assertIsNotNone(last_result, "No result obtained at all.")
+        self.assertIsNotNone(last_result.naive_classification, "No naive classification.") # type: ignore
+        self.assertIsNotNone(last_result.enhanced_classification, "No enhanced classification.") # type: ignore
+        self.assertEqual(counter, len(mock_conversation), "Messages are missing (or too many have been received?)")
+        self.assertEqual(last_result.naive_classification["answer"], "SAFE", f"Message wrongfully classified as {last_result.naive_classification["answer"]} by the naive detector.") # type: ignore
+        self.assertEqual(last_result.enhanced_classification["answer"], "SAFE", f"Message wrongfully classified as {last_result.naive_classification["answer"]} by the enhanced detector.") # type: ignore
+        self.assertGreater(last_result.enhanced_classification["timestamp"], -1, "No timestamp present on the enhanced detector.") # type: ignore
+        self.assertGreater(last_result.naive_classification["timestamp"], -1, "No timestamp present on the naive detector.") # type: ignore
         
     def test_4_detection_fraud(self):
         event_id = str(uuid.uuid4())
@@ -400,55 +419,67 @@ class TestBasicHTTP(unittest.TestCase):
                 "offset_in_seconds": 2
             },
         ]
-
-        with self.client.websocket_connect("/ws") as websocket:
-            websocket.send_json(
-                { 
-                    "kind": "TranscriptionMetadata",
-                    "transcriptionMetadata": {
-                        "callConnectionId": call_id,
-                        "subscriptionId": "test-call-id",
-                        "locale": "en-US",
-                        "locales": ["en-US"],
-                        "correlationId": "test-correlation-id",
-                        "piiRedactionOptions": None
-                    }
-                }
-            )
-
-            for turn in mock_conversation:
+        try:
+            with self.client.websocket_connect("/ws") as websocket:
                 websocket.send_json(
-                    {
-                        "kind": "TranscriptionData",
-                        "transcriptionData": {
-                            "text": turn["text"],
-                            "format": "Display",
-                            "confidence": 0.92,
-                            "offset": float(turn["offset_in_seconds"]) * 1000000,
-                            "duration": 12345678,
-                            "participantRawID": turn["speaker"],
-                            "resultStatus": "Recognized",
-                            "sentimentAnalysisResult": "Neutral",
-                            "words": []
+                    { 
+                        "kind": "TranscriptionMetadata",
+                        "transcriptionMetadata": {
+                            "callConnectionId": call_id,
+                            "subscriptionId": "test-call-id",
+                            "locale": "en-US",
+                            "locales": ["en-US"],
+                            "correlationId": "test-correlation-id",
+                            "piiRedactionOptions": None
                         }
                     }
                 )
 
-                time.sleep(float(turn["offset_in_seconds"]))
+                for turn in mock_conversation:
+                    websocket.send_json(
+                        {
+                            "kind": "TranscriptionData",
+                            "transcriptionData": {
+                                "text": turn["text"],
+                                "format": "Display",
+                                "confidence": 0.92,
+                                "offset": float(turn["offset_in_seconds"]) * 1000000,
+                                "duration": 12345678,
+                                "participantRawID": turn["speaker"],
+                                "resultStatus": "Recognized",
+                                "sentimentAnalysisResult": "Neutral",
+                                "words": []
+                            }
+                        }
+                    )
+
+                    time.sleep(float(turn["offset_in_seconds"]))
+                websocket.close()
+        except Exception as e:
+            pass
         
         counter = 0
         last_result: TurnOfConversation | None = None
+        transcription_officially_ended = False
         with self.servicebus_client.get_queue_receiver("detection-results", max_wait_time=60) as receiver:
             for msg in receiver:  # ServiceBusReceiver instance is a generator.
-                last_result = TurnOfConversation(**json.loads(msg.body))
+                if (msg.subject == "END_OF_TRANSCRIPTION"):
+                    transcription_officially_ended = True
+                    receiver.complete_message(msg)
+                    break
+                last_result = TurnOfConversation(**json.loads(next(msg.body)))
                 counter += 1
+                receiver.complete_message(msg)
 
-        self.assertIsNotNone(last_result)
-        self.assertIsNotNone(last_result.naive_result) # type: ignore
-        self.assertIsNotNone(last_result.enhanced_result) # type: ignore
-        self.assertEqual(counter, len(mock_conversation))
-        self.assertEqual(last_result.naive_result.answer, "FRAUD") # type: ignore
-        self.assertEqual(last_result.enhanced_result.answer, "FRAUD") # type: ignore
+        self.assertTrue(transcription_officially_ended, "Transcription never officially ended.")
+        self.assertIsNotNone(last_result, "No result obtained at all.")
+        self.assertIsNotNone(last_result.naive_classification, "No naive classification.") # type: ignore
+        self.assertIsNotNone(last_result.enhanced_classification, "No enhanced classification.") # type: ignore
+        self.assertEqual(counter, len(mock_conversation), "Messages are missing (or too many have been received?)")
+        self.assertEqual(last_result.naive_classification["answer"], "FRAUD", f"Message wrongfully classified as {last_result.naive_classification["answer"]} by the naive detector.") # type: ignore
+        self.assertEqual(last_result.enhanced_classification["answer"], "FRAUD", f"Message wrongfully classified as {last_result.naive_classification["answer"]} by the enhanced detector.") # type: ignore
+        self.assertGreater(last_result.enhanced_classification["timestamp"], -1, "No timestamp present on the enhanced detector.") # type: ignore
+        self.assertGreater(last_result.naive_classification["timestamp"], -1, "No timestamp present on the naive detector.") # type: ignore
         #analyser._ongoing_calls.clear()
 
 

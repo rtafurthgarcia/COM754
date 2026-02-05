@@ -1,5 +1,3 @@
-import logging
-from sys import api_version
 from azure.identity import DefaultAzureCredential
 from azure.servicebus import ServiceBusClient
 from dependency_injector import containers, providers

@@ -1,5 +1,6 @@
 from collections import OrderedDict
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field, is_dataclass
+from enum import Enum
 import json
 import time
 from typing import List, Literal, Optional, Tuple
@@ -10,12 +11,13 @@ from azure.communication.callautomation import CallConnectionClient
 from fastapi import WebSocket
 from pydantic import BaseModel
 
-class FinalDetectorResults(BaseModel):
-    answer: Literal["SAFE", "FRAUD"]
-    timestamp: float = time.time()
+class Classification(BaseModel):
+    answer: Literal["SAFE", "FRAUD", "UNKNOWN"] = "UNKNOWN"
+    timestamp: float = -1
 
-class IntermediateEnhancedDetectorResults(BaseModel):
+class IntermediateClassification(BaseModel):
     answer: bool
+    timestamp: float = -1
 
 def get_prompts():
     return {
@@ -191,6 +193,10 @@ class TranscriptionData:
         )
     
 @dataclass
+class EndOfTranscription:
+    group_id: str
+
+@dataclass
 class SubscriptionValidation:
     validationCode: str
 
@@ -200,35 +206,83 @@ class SubscriptionValidation:
             validationCode=json["validationCode"]
         )
 
+def serialise_classification(value):
+    if value is None:
+        return None
+
+    if isinstance(value, Enum):
+        return value.value
+
+    if hasattr(value, "model_dump"):
+        return value.model_dump()
+
+    # Fallback (string / int / etc.)
+    return value
+
 @dataclass
 class TurnOfConversation:
+    id: int 
     group_id: str 
     speaker: str
     text: str
-    naive_result: Optional[FinalDetectorResults] = None
-    enhanced_result: Optional[FinalDetectorResults] = None
-    timestamp: float = time.time()
+    naive_classification: Optional[Classification] = None
+    enhanced_classification: Optional[Classification] = None
+    start_timestamp: float = time.time()
+
+    def to_json(self) -> str:
+        payload = {
+            "id": self.id,
+            "group_id": self.group_id,
+            "speaker": self.speaker,
+            "text": self.text,
+            "naive_classification": serialise_classification(self.naive_classification),
+            "enhanced_classification": serialise_classification(self.enhanced_classification),
+            "start_timestamp": self.start_timestamp
+        }
+
+        return json.dumps(payload, ensure_ascii=False)
 
 @dataclass
 class OngoingCall:
     group_id: str 
-    call: CallConnectionClient | None
-    conversation: OrderedDict[float, TurnOfConversation] = field(default_factory=OrderedDict)
-    start_timestamp: float = time.time()
-    end_timestamp: Optional[float] = None
+    call: CallConnectionClient
+    _conversation: OrderedDict[float, TurnOfConversation] = field(default_factory=OrderedDict)
+    received_timestamp: float = time.time()
+
+    def get_final_results(self) -> Tuple[Classification | None, Classification | None]:
+        last_ruling = self._conversation[next(reversed(self._conversation))]
+        return last_ruling.naive_classification, last_ruling.enhanced_classification
 
     def conversation_to_str(self):
         result = ""
 
-        for turn in self.conversation.values():
-            result += f"{turn.speaker} at {turn.timestamp} said:\n"
+        for turn in self._conversation.values():
+            result += f"{turn.speaker} at {turn.start_timestamp} said:\n"
             result += f"{turn.text}"
 
         return result
+    
+    def add_new_turn(self, speaker: str, text: str) -> float:
+        timestamp = time.time()
+        self._conversation[timestamp] = TurnOfConversation(
+            id=len(self._conversation) + 1,
+            group_id=self.group_id,
+            speaker=speaker, 
+            text=text
+        )
 
-    def get_final_results(self) -> Tuple[FinalDetectorResults | None, FinalDetectorResults | None]:
-        last_ruling = self.conversation[next(reversed(self.conversation))]
-        return last_ruling.naive_result, last_ruling.enhanced_result
+        return timestamp
+    
+    def conclude(self, 
+        timestamp: float, 
+        naive_classification: Classification, 
+        enhanced_classification: Classification
+    ) -> TurnOfConversation:
+        self._conversation[timestamp].naive_classification = naive_classification
+        self._conversation[timestamp].enhanced_classification = enhanced_classification
+
+        return self._conversation[timestamp]
+
 
 @dataclass
 class Acknowledgment:

@@ -2,9 +2,9 @@ import asyncio
 import logging
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, Response, Depends
 from fastapi.responses import JSONResponse
+import uvicorn
 from call_analyser import CallAnalyser
 from models import Acknowledgment, CallEnded, CallStarted, ConnectionManager, SubscriptionValidation, TranscriptionData, TranscriptionMetadata, deserialise_event, deserialise_ws_message
-from dependency_injector.wiring import inject
 from container import Container
 
 def create_app(container: Container) -> FastAPI:
@@ -46,7 +46,7 @@ def create_app(container: Container) -> FastAPI:
 
             if isinstance(event, CallEnded):
                 logger.info(f"{__name__}: Leaving call {event.group_id}")
-                call_analyser.leave_call(event)
+                call_analyser.leave_call(event.group_id)
 
             if isinstance(event, Acknowledgment):
                 logger.info(f"{__name__}: Received acknowledgment of type {event.type}")
@@ -60,7 +60,8 @@ def create_app(container: Container) -> FastAPI:
     ):
         await manager.connect(websocket)
         logger.info(f"{__name__}: connection received from {websocket.client or "unknown host?"}")
-        call_connection_id = None 
+        call_connection_id = None
+        running_analyses = set()
         try:
             async with asyncio.TaskGroup() as tg:
                 while True:
@@ -73,23 +74,28 @@ def create_app(container: Container) -> FastAPI:
                         call_connection_id = message.callConnectionId
                     elif (isinstance(message, TranscriptionData) and call_connection_id is not None):
                         logger.info(f"{__name__}: {call_connection_id}: call is being analysed...")
-                        tg.create_task(call_analyser.run_analysis(call_connection_id, message))
-            
+                        # needed to add each task to a set, to keep a strong reference
+                        # otherwise it gets garbage collected => means many results were never returned!
+                        # see: https://textual.textualize.io/blog/2023/02/11/the-heisenbug-lurking-in-your-async-code/
+                        new_analysis = tg.create_task(call_analyser.run_analysis(call_connection_id, message))
+                        running_analyses.add(new_analysis)
+                        new_analysis.add_done_callback(running_analyses.discard)
+
         except WebSocketDisconnect:
             logger.info(f"{__name__}: disconnected")
         except Exception as e:
             logger.info(f"{__name__}: closed unexpectedly due to an error: {e}")
         finally:
-            if (call_connection_id is not None):
-                call_analyser.conclude_analysis(call_connection_id)
             manager.remove(websocket)
+            if (call_connection_id is not None):
+                await call_analyser.notify_end_of_transcription(call_connection_id)
 
     return app
 
+container = Container()
+app = create_app(container)
+
 if __name__ == "__main__":
-    container = Container()
-    app = create_app(container)
-
     import uvicorn
-
-    uvicorn.run(app, host="0.0.0.0", port=8000,  ws_ping_interval=2, ws_ping_timeout=60)
+    container = Container()
+    uvicorn.run(app=app, workers=1, host="0.0.0.0", port=8000,  ws_ping_interval=2, ws_ping_timeout=60)
