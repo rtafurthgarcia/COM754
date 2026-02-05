@@ -36,11 +36,13 @@ namespace CallerCallee
             Ioc.Default.ConfigureServices(
                 new ServiceCollection()
                 // services
+                .AddSingleton<AuthenticationService>()
                 .AddSingleton<DatasetService>()
                 .AddSingleton<CallerCalleeService>()
                 .AddSingleton<SettingsService>()
                 .AddSingleton<FilePickerService>()
                 .AddSingleton<AudioService>()
+                .AddSingleton<BusService>()
 
                 // models
                 .AddTransient<MainPageViewModel>()

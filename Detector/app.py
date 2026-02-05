@@ -2,7 +2,7 @@ import asyncio
 import logging
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, Response, Depends
 from fastapi.responses import JSONResponse
-from Detector.call_analyser import CallAnalyser
+from call_analyser import CallAnalyser
 from models import Acknowledgment, CallEnded, CallStarted, ConnectionManager, SubscriptionValidation, TranscriptionData, TranscriptionMetadata, deserialise_event, deserialise_ws_message
 from dependency_injector.wiring import inject
 from container import Container

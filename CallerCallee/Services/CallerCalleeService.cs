@@ -1,64 +1,31 @@
 ﻿using Azure.Communication.Identity;
 using Azure.Identity;
-using Azure.ResourceManager;
-using Azure.ResourceManager.KeyVault;
 using Azure.Security.KeyVault.Secrets;
 using CallerCallee.Models;
 using CommunityToolkit.Mvvm.DependencyInjection;
 using System;
-using System.Collections.Concurrent;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Windows.ApplicationModel.Calls;
-using Windows.Media.Protection.PlayReady;
 
 namespace CallerCallee.Services
 {
     public sealed class CallerCalleeService
     {
-        private static readonly string CS_ENDPOINT_NAME = "com754-cs-endpoint";
-
-        private string keyVaultName;
-        private KeyVaultSecret csEndpoint;
-
         private CommunicationIdentityClient communicationIdentity;
         private SemaphoreSlim semaphore;
+        private readonly AuthenticationService authenticationService = Ioc.Default.GetRequiredService<AuthenticationService>();
+        private readonly AudioService audioService = Ioc.Default.GetRequiredService<AudioService>();
 
-        public async Task<DefaultAzureCredential> Authenticate()
+        CallerCalleeService() 
         {
-            var credential = new DefaultAzureCredential();
+            var csEndpoint = authenticationService.KeyVault.GetSecret(AuthenticationService.CS_ENDPOINT_NAME).Value;
+            communicationIdentity = new CommunicationIdentityClient(new Uri(csEndpoint.Value), authenticationService.Credential);
+        }       
 
-            keyVaultName = await GetKeyVaultName(credential);
-            var kvUri = "https://" + keyVaultName + ".vault.azure.net";
-
-            var kvClient = new SecretClient(new Uri(kvUri), new DefaultAzureCredential());
-            csEndpoint = await kvClient.GetSecretAsync(CS_ENDPOINT_NAME);
-            communicationIdentity = new CommunicationIdentityClient(new Uri(csEndpoint.Value), credential);
-
-            return credential;
-        }
-
-        private static async Task<string> GetKeyVaultName(DefaultAzureCredential credential)
+        public async Task StartSimulation(int maxAmountOfParallelCalls)
         {
-            var armClient = new ArmClient(credential);
-
-            await foreach (var sub in armClient.GetSubscriptions().GetAllAsync())
-            {
-                await foreach (var kv in sub.GetKeyVaultsAsync())
-                {
-                    return kv.Data.Name;
-                }
-            }
-
-            throw new AuthenticationFailedException("Could not find the keyvault name");
-        }
-
-        public async Task StartSimulation(DefaultAzureCredential credential, int maxAmountOfParallelCalls)
-        {
-            ArgumentNullException.ThrowIfNull(credential);
+            ArgumentNullException.ThrowIfNull(authenticationService.Credential);
 
             semaphore = new SemaphoreSlim(maxAmountOfParallelCalls, maxAmountOfParallelCalls);
             var dataset = Ioc.Default.GetRequiredService<DatasetService>().Dataset;
@@ -80,13 +47,13 @@ namespace CallerCallee.Services
 
                 if (callerDevice is null)
                 {
-                    if (!Ioc.Default.GetRequiredService<AudioService>().GetAvailableDevice(out callerDevice))
+                    if (!audioService.GetAvailableDevice(out callerDevice))
                         continue;
                 }
 
                 if (calleeDevice is null)
                 {
-                    if (!Ioc.Default.GetRequiredService<AudioService>().GetAvailableDevice(out calleeDevice))
+                    if (!audioService.GetAvailableDevice(out calleeDevice))
                         continue;
                 }
 
@@ -119,8 +86,8 @@ namespace CallerCallee.Services
                     Debug.WriteLine($"{callEntry.Name}: Error during call init: {e}");
                     semaphore.Release();
 
-                    Ioc.Default.GetRequiredService<AudioService>().TryFreeDevice((int)calleeDevice);
-                    Ioc.Default.GetRequiredService<AudioService>().TryFreeDevice((int)callerDevice);
+                    audioService.TryFreeDevice((int)calleeDevice);
+                    audioService.TryFreeDevice((int)callerDevice);
                 } 
                 finally
                 {
@@ -143,8 +110,8 @@ namespace CallerCallee.Services
                 semaphore.Release();
                 Debug.WriteLine($"{phoneCall.Entry.Name}: Call ended after {(int)(DateTime.Now - phoneCall.caller.Call.StartTime).TotalSeconds}s.");
 
-                Ioc.Default.GetRequiredService<AudioService>().TryFreeDevice(phoneCall.caller.AudioDeviceNumber);
-                Ioc.Default.GetRequiredService<AudioService>().TryFreeDevice(phoneCall.callee.AudioDeviceNumber);
+                audioService.TryFreeDevice(phoneCall.caller.AudioDeviceNumber);
+                audioService.TryFreeDevice(phoneCall.callee.AudioDeviceNumber);
             }
             //Console.WriteLine("The Elapsed event was raised at {0}", e.SignalTime);
         }

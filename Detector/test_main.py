@@ -1,5 +1,3 @@
-# tests/test_app.py
-
 import json
 import unittest
 import uuid
@@ -10,10 +8,9 @@ from azure.servicebus import ServiceBusClient
 from fastapi.testclient import TestClient
 from dependency_injector import providers
 
-from Detector import secrets_provider
-from Detector.app import create_app
-from Detector.container import Container
-from Detector.models import TurnOfConversation
+from app import create_app
+from container import Container
+from models import TurnOfConversation
 
 class FakeCallAutomationClient:
     def connect_call(self, *args, **kwargs):

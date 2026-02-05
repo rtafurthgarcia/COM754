@@ -13,7 +13,7 @@ using System;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Threading.Tasks;
-using static CallerCallee.Models.PhoneCallMessage;
+using static CallerCallee.Models.SystemwideMessage;
 
 namespace CallerCallee.ViewModels
 {
@@ -41,6 +41,7 @@ namespace CallerCallee.ViewModels
 
         private readonly DatasetService datasetService = Ioc.Default.GetRequiredService<DatasetService>();
         private readonly CallerCalleeService callerCalleeService = Ioc.Default.GetRequiredService<CallerCalleeService>();
+        private readonly AuthenticationService authenticationService = Ioc.Default.GetRequiredService<AuthenticationService>();
         private readonly SettingsService settingsService = Ioc.Default.GetRequiredService<SettingsService>();
 
         DispatcherQueue dispatcherQueue = DispatcherQueue.GetForCurrentThread();
@@ -89,7 +90,7 @@ namespace CallerCallee.ViewModels
             try
             {
                 Progression = 0;
-                await callerCalleeService.StartSimulation(Credential, 1);
+                await callerCalleeService.StartSimulation(1);
             } 
             catch (Exception e)
             {
@@ -108,7 +109,7 @@ namespace CallerCallee.ViewModels
         {
             try
             {
-                Credential = await callerCalleeService.Authenticate();
+                Credential = await authenticationService.AuthenticateAsync();
             }
             catch (Exception e)
             {

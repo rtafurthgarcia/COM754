@@ -8,5 +8,7 @@
         "test_main.py"
     ],
     "python.testing.pytestEnabled": false,
-    "python.testing.unittestEnabled": true
+    "python.testing.unittestEnabled": true,
+    "appService.defaultWebAppToDeploy": "/subscriptions/9c70edb4-d5ee-45a1-9172-a8d0d83136dc/resourceGroups/com754-rg/providers/Microsoft.Web/sites/com754-as-transcript-and-detect",
+    "appService.deploySubpath": "Detector"
 }

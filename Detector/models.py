@@ -1,15 +1,13 @@
 from collections import OrderedDict
 from dataclasses import dataclass, field
-import dataclasses
 import json
 import time
 from typing import List, Literal, Optional, Tuple
 from azure.communication.identity import CommunicationUserIdentifier
 from azure.core.exceptions import DeserializationError
-from azure.communication.callautomation import CallAutomationClient, CallConnectionClient
+from azure.communication.callautomation import CallConnectionClient
 
 from fastapi import WebSocket
-from openai import conversations
 from pydantic import BaseModel
 
 class FinalDetectorResults(BaseModel):

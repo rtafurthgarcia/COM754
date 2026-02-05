@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 
 namespace CallerCallee.Models
 {
-    public static class PhoneCallMessage
+    public static class SystemwideMessage
     {
         public class CallInitiated(PhoneCall call) : ValueChangedMessage<PhoneCall>(call)
         {

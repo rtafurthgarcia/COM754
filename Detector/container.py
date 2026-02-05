@@ -5,8 +5,8 @@ from azure.servicebus import ServiceBusClient
 from dependency_injector import containers, providers
 from openai import AsyncAzureOpenAI
 
-from Detector.secrets_provider import KeyVaultSecretsProvider
-from Detector.call_analyser import CallAnalyser
+from secrets_provider import KeyVaultSecretsProvider
+from call_analyser import CallAnalyser
 from azure.communication.callautomation import CallAutomationClient
 from azure.communication.identity import CommunicationIdentityClient
 
