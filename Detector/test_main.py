@@ -10,7 +10,7 @@ from dependency_injector import providers
 
 from application import create_app
 from container import Container
-from models import EndOfTranscription, TurnOfConversation
+from models import EndOfAnalysis, TurnOfConversation
 
 class FakeCallAutomationClient:
     def connect_call(self, *args, **kwargs):
@@ -274,7 +274,7 @@ class TestBasicHTTP(unittest.TestCase):
         transcription_officially_ended = False
         with self.servicebus_client.get_queue_receiver("detection-results", max_wait_time=60) as receiver:
             for msg in receiver:  # ServiceBusReceiver instance is a generator.
-                if (msg.subject == "END_OF_TRANSCRIPTION"):
+                if (msg.subject == "END_OF_ANALYSIS"):
                     transcription_officially_ended = True
                     receiver.complete_message(msg)
                     break
@@ -463,7 +463,7 @@ class TestBasicHTTP(unittest.TestCase):
         transcription_officially_ended = False
         with self.servicebus_client.get_queue_receiver("detection-results", max_wait_time=60) as receiver:
             for msg in receiver:  # ServiceBusReceiver instance is a generator.
-                if (msg.subject == "END_OF_TRANSCRIPTION"):
+                if (msg.subject == "END_OF_ANALYSIS"):
                     transcription_officially_ended = True
                     receiver.complete_message(msg)
                     break

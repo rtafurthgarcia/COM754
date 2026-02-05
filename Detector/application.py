@@ -88,7 +88,7 @@ def create_app(container: Container) -> FastAPI:
         finally:
             manager.remove(websocket)
             if (call_connection_id is not None):
-                await call_analyser.notify_end_of_transcription(call_connection_id)
+                await call_analyser.notify_end_of_analysis(call_connection_id)
 
     return app
 

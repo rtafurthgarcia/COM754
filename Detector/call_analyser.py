@@ -12,7 +12,7 @@ from azure.core.exceptions import ServiceResponseError
 from azure.servicebus import ServiceBusClient, ServiceBusMessage
 from openai import AsyncAzureOpenAI
 from dataclasses import asdict
-from models import CallStarted, Classification, IntermediateClassification, OngoingCall, TranscriptionData, TurnOfConversation, get_prompts
+from models import CallStarted, Classification, EndOfAnalysis, IntermediateClassification, OngoingCall, TranscriptionData, TurnOfConversation, get_prompts
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -126,7 +126,7 @@ class CallAnalyser:
         except Exception as e:
             logger.info(f"{__name__}: {call_id}: Failed to asssess this turn of conversation: {e}")
 
-        await self._send_result(
+        await self._send_turn_analysis_result(
             self._ongoing_calls[call_id].conclude(
                 timestamp, 
                 naive_classification, 
@@ -161,16 +161,18 @@ class CallAnalyser:
 
         return response.output_parsed 
     
-    async def _send_result(self, turn: TurnOfConversation):
+    async def _send_turn_analysis_result(self, turn: TurnOfConversation):
         async with self._lock:
-            self._servicebus_sender.send_messages(message=ServiceBusMessage(turn.to_json(), subject="TRANSCRIPTION")) 
-            logger.info(f"{__name__}: #{turn.group_id}: {turn.id}:turn assessed.")
+            self._servicebus_sender.send_messages(message=ServiceBusMessage(turn.to_json(), subject="TURN_ANALYSIS")) 
+            logger.info(f"{__name__}: #{turn.group_id}: {turn.id}: turn analysed.")
 
-    async def notify_end_of_transcription(self, call_id: str):
+    async def notify_end_of_analysis(self, call_id: str):
         call = self._ongoing_calls[call_id]
 
         async with self._lock:
-            self._servicebus_sender.send_messages(message=ServiceBusMessage(call_id, subject="END_OF_TRANSCRIPTION")) 
-            logger.info(f"{__name__}: {call.group_id}: End of transcription.")
+            self._servicebus_sender.send_messages(
+                message=ServiceBusMessage(EndOfAnalysis(call.group_id).to_json(), subject="END_OF_ANALYSIS")
+            ) 
+            logger.info(f"{__name__}: {call.group_id}: end of analysis.")
 
         del self._ongoing_calls[call_id]

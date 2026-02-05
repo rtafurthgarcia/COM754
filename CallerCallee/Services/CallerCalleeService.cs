@@ -4,6 +4,7 @@ using Azure.Security.KeyVault.Secrets;
 using CallerCallee.Models;
 using CommunityToolkit.Mvvm.DependencyInjection;
 using System;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
@@ -16,6 +17,8 @@ namespace CallerCallee.Services
         private SemaphoreSlim semaphore;
         private readonly AuthenticationService authenticationService = Ioc.Default.GetRequiredService<AuthenticationService>();
         private readonly AudioService audioService = Ioc.Default.GetRequiredService<AudioService>();
+        private readonly DatasetService datasetService = Ioc.Default.GetRequiredService<DatasetService>();
+        private readonly ConcurrentDictionary<DatasetEntry, int> retries = [];
 
         public async Task StartSimulation(int maxAmountOfParallelCalls)
         {
@@ -24,8 +27,7 @@ namespace CallerCallee.Services
             ArgumentNullException.ThrowIfNull(authenticationService.Credential);
 
             semaphore = new SemaphoreSlim(maxAmountOfParallelCalls, maxAmountOfParallelCalls);
-            var dataset = Ioc.Default.GetRequiredService<DatasetService>().Dataset;
-            Debug.WriteLine($"Running simulation on {dataset.Count} calls.");
+            Debug.WriteLine($"Running simulation on {datasetService.TodoDataset.Count} calls.");
 
             DatasetEntry callEntry = null;
             int? callerDevice = null;
@@ -33,11 +35,11 @@ namespace CallerCallee.Services
             CommunicationUserIdentifierAndToken caller = null;
             CommunicationUserIdentifierAndToken callee = null;
 
-            while (!dataset.IsEmpty) 
+            while (!datasetService.TodoDataset.IsEmpty) 
             {
                 if (callEntry is null)
                 {
-                    if (! dataset.TryDequeue(out callEntry))
+                    if (!datasetService.TodoDataset.TryDequeue(out callEntry))
                         continue;
                 }
 
@@ -53,21 +55,14 @@ namespace CallerCallee.Services
                         continue;
                 }
 
-                if (caller is null)
-                {
-                    caller = await communicationIdentity.CreateUserAndTokenAsync([CommunicationTokenScope.VoIP]);
-                }
-
-                if (callee is null)
-                {
-                    callee = await communicationIdentity.CreateUserAndTokenAsync([CommunicationTokenScope.VoIP]);
-                }
+                caller ??= await communicationIdentity.CreateUserAndTokenAsync([CommunicationTokenScope.VoIP]);
+                callee ??= await communicationIdentity.CreateUserAndTokenAsync([CommunicationTokenScope.VoIP]);
 
                 try
                 {
                     await semaphore.WaitAsync();
 
-                    var phoneCall = new Models.PhoneCall(
+                    var phoneCall = new PhoneCall(
                         caller,
                         callee,
                         (int)callerDevice,
@@ -75,15 +70,33 @@ namespace CallerCallee.Services
                         callEntry
                     );
                     phoneCall.OnEndOfCall += CallEnded;
+                    callEntry.State = State.Ongoing;
                     await phoneCall.DialUp();
+                    datasetService.DoneDataset.TryAdd(phoneCall.Guid, callEntry);
                 }
                 catch (Exception e)
                 {
-                    Debug.WriteLine($"{callEntry.Name}: Error during call init: {e}");
+                    Debug.WriteLine($"{callEntry.Id}: Error during call init: {e}");
                     semaphore.Release();
-
                     audioService.TryFreeDevice((int)calleeDevice);
                     audioService.TryFreeDevice((int)callerDevice);
+
+                    if (retries.TryGetValue(callEntry, out var retryCount) && retryCount >= 3)
+                    {
+                        Debug.WriteLine($"{callEntry.Id}: Reached max retry count. Skipping call.");
+                        callEntry.Exception = e;
+                        callEntry.State = State.Failed;
+                        datasetService.DoneDataset.TryAdd(Guid.NewGuid(), callEntry);
+                    }
+                    else
+                    {
+                        datasetService.TodoDataset.Enqueue(callEntry);
+                        retries.AddOrUpdate(
+                            callEntry,
+                            1,
+                            (_, current) => current + 1
+                        );
+                    }
                 } 
                 finally
                 {
@@ -98,16 +111,16 @@ namespace CallerCallee.Services
             Debug.WriteLine("End of process");
         }
 
-        private void CallEnded(Object source, EventArgs e)
+        private void CallEnded(object source, EventArgs e)
         {
-            if (source is Models.PhoneCall phoneCall)
+            if (source is PhoneCall phoneCall)
             {
                 phoneCall.OnEndOfCall -= CallEnded;
                 semaphore.Release();
-                Debug.WriteLine($"{phoneCall.Entry.Name}: Call ended after {(int)(DateTime.Now - phoneCall.caller.Call.StartTime).TotalSeconds}s.");
+                Debug.WriteLine($"{phoneCall.Entry.Id}: Call ended after {(int)(DateTime.Now - phoneCall.Caller.Call.StartTime).TotalSeconds}s.");
 
-                audioService.TryFreeDevice(phoneCall.caller.AudioDeviceNumber);
-                audioService.TryFreeDevice(phoneCall.callee.AudioDeviceNumber);
+                audioService.TryFreeDevice(phoneCall.Caller.AudioDeviceNumber);
+                audioService.TryFreeDevice(phoneCall.Callee.AudioDeviceNumber);
             }
             //Console.WriteLine("The Elapsed event was raised at {0}", e.SignalTime);
         }

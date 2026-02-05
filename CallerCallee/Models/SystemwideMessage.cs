@@ -24,5 +24,12 @@ namespace CallerCallee.Models
         public class NextTurnBeingPlayed(PhoneCall call) : ValueChangedMessage<PhoneCall>(call)
         {
         }
+
+        public class DetectionResultReceived(DetectionResult result) : ValueChangedMessage<DetectionResult>(result)
+        {
+        }
+        public class EndOfAnalysis(Guid guid) : ValueChangedMessage<Guid>(guid)
+        {
+        }
     }
 }

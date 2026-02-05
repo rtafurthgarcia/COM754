@@ -10,7 +10,7 @@ using Windows.Security.Authentication.Web.Core;
 
 namespace CallerCallee.Services
 {
-    public sealed class AudioService
+    public sealed partial class AudioService
     {
         private struct InternalPlayer(ref WaveOutEvent WaveOutEvent, ref AudioFileReader AudioFileReader)
         {
@@ -22,7 +22,7 @@ namespace CallerCallee.Services
         private readonly ConcurrentStack<int> availableDevices = new();
 
         public AudioService() {
-            Regex regex = new Regex(@"CABLE-[A-D] Input", RegexOptions.Compiled);
+            Regex regex = CableRegex();
 
             Enumerable
                 .Range(0, WaveOut.DeviceCount)
@@ -38,14 +38,10 @@ namespace CallerCallee.Services
 
         public static AudioDeviceDetails FindEquivalent(int deviceNumber, List<AudioDeviceDetails> possibleDevices)
         {
-            var possibleName = WaveOut.GetCapabilities(deviceNumber).ProductName.Substring(0, 7);
+            var possibleName = WaveOut.GetCapabilities(deviceNumber).ProductName[..7];
 
-            var result = possibleDevices.Find(i => i.Name.Substring(0, 7).Equals(possibleName));
-            if (result == null) {
-                throw new Exception("Couldn't find the corresponding microphone for your virtual speaker. Make sure the drivers are installed and check the project's documentation.");
-            }
-
-            return result;
+            var result = possibleDevices.Find(i => i.Name[..7].Equals(possibleName));
+            return result ?? throw new Exception("Couldn't find the corresponding microphone for your virtual speaker. Make sure the drivers are installed and check the project's documentation.");
         }
 
         public bool GetAvailableDevice(out int? deviceNunber)
@@ -84,5 +80,8 @@ namespace CallerCallee.Services
             return succeeded;
 
         }
+
+        [GeneratedRegex(@"CABLE-[A-D] Input", RegexOptions.Compiled)]
+        private static partial Regex CableRegex();
     }
 }

@@ -23,23 +23,35 @@ namespace CallerCallee.Models
             //public AudioGraphAcsBridge Bridge;
         };
 
-        public readonly CallDetails caller;
-        public readonly CallDetails callee;
-        public readonly DatasetEntry Entry;
-
-        public enum Speaker
+        private readonly CallDetails caller;
+        public CallDetails Caller
         {
-            Caller,
-            Callee
+            get { return caller; }
+        }   
+        private readonly CallDetails callee;
+        public CallDetails Callee
+        {
+            get { return callee; }
+        }
+
+        private readonly DatasetEntry entry;
+        public DatasetEntry Entry
+        {
+            get { return entry; }
         }
 
         public DatasetEntry CurrentTurn
         {
-            get => Entry.Children.Count > 0 ? Entry.Children.Peek() : null;
+            get => entry.Children.Count > 0 ? entry.Children.Peek() : null;
         }
 
         private readonly GroupCallLocator groupCallLocator = new(Guid.NewGuid());
-        private Speaker currentSpeaker = Speaker.Caller;
+        public Guid Guid
+        {
+            get { return groupCallLocator.GroupId; }
+        }
+        private Speaker currentSpeaker = Speaker.Callee; // will be switched to caller at the beginning of the call,
+                                                         // so that the first turn gets played by the caller as intended.
         private readonly CallTokenRefreshOptions callTokenRefreshOptions = new(true);
         private readonly CallClientOptions callClientOptions = new()
         {
@@ -65,7 +77,7 @@ namespace CallerCallee.Models
             caller = new CallDetails(callerIdAndToken);
             callee = new CallDetails(calleeIdAndToken);
 
-            this.Entry = Entry;
+            this.entry = Entry;
             caller.AudioDeviceNumber = callerDeviceNumber;
             callee.AudioDeviceNumber = calleeDeviceNumber;
         }
@@ -84,7 +96,7 @@ namespace CallerCallee.Models
                 callerTokenCredential,
                 new CallAgentOptions()
                 {
-                    DisplayName = $"{Entry.Name}/COM754-Caller",
+                    DisplayName = $"{entry.Id}/COM754-Caller",
                 }
             );
 
@@ -96,7 +108,7 @@ namespace CallerCallee.Models
                 calleeTokenCredential,
                 new CallAgentOptions()
                 {
-                    DisplayName = $"{Entry.Name}/COM754-Callee",
+                    DisplayName = $"{entry.Id}/COM754-Callee",
                 }
             );
 
@@ -106,7 +118,7 @@ namespace CallerCallee.Models
             );
             caller.Call.StateChanged += OnCallStateChangedAsync;
             caller.Call.RemoteParticipantsUpdated += OnCallRemoteParticipantsUpdated;
-            Debug.WriteLine($"{Entry.Name}: Caller is creating the group call {groupCallLocator.GroupId}");
+            Debug.WriteLine($"{entry.Id}: Caller is creating the group call {groupCallLocator.GroupId}");
             await Task.Delay(5000); // give it enough slack so that the first client gets registered. 
 
             callee.Call = await callee.CallAgent.JoinAsync(
@@ -121,7 +133,7 @@ namespace CallerCallee.Models
         {
             e.AddedParticipants
                 .ToList()
-                .ForEach(participant => Debug.WriteLine($"{Entry.Name}: {participant.DisplayName} has joined group call {groupCallLocator.GroupId}"));
+                .ForEach(participant => Debug.WriteLine($"{entry.Id}: {participant.DisplayName} has joined group call {groupCallLocator.GroupId}"));
         }
 
         protected virtual void OnCallEnded(EventArgs args)
@@ -132,15 +144,35 @@ namespace CallerCallee.Models
 
         private async void OnPlaybackStopped(object sender, EventArgs e)
         {
-            if (Entry.Children.Count > 0)
+            try
             {
-                NextTurn();
+                if (entry.Children.Count > 0)
+                {
+                    NextTurn();
+                }
+                else
+                {
+                    Debug.WriteLine($"{entry.Id}: Conversation over.");
+                    entry.Exception = null;
+                    entry.State = State.WaitingForClassification;
+                    WeakReferenceMessenger.Default.Send(new CallCompleted(this));
+                    await caller.Call.HangUpAsync(new HangUpOptions() { ForEveryone = true });
+                }
             }
-            else
+            catch (Exception ex)
             {
-                Debug.WriteLine($"{Entry.Name}: Conversation over.");
-                await caller.Call.HangUpAsync(new HangUpOptions() { ForEveryone = true });
-                WeakReferenceMessenger.Default.Send(new CallCompleted(this));
+                Debug.WriteLine($"{entry.Id}: Exception in OnPlaybackStopped: {ex.Message}");
+                entry.State = State.Failed;
+                entry.Exception = ex;
+
+                // only skip once, if it fails again,
+                // then we consider the call failed and move on with the rest of the dataset.
+                if (entry.Children.Count > 0)
+                {
+                    Debug.WriteLine($"{entry.Id}: Skipping to the next one...");
+
+                    NextTurn();
+                }
             }
         }
 
@@ -165,7 +197,7 @@ namespace CallerCallee.Models
                     }
                     case CallState.Disconnected:
                     {
-                        Debug.WriteLine($"{Entry.Name}: Call has been disconnected.");
+                        Debug.WriteLine($"{entry.Id}: Call has been disconnected.");
                         call.StateChanged -= OnCallStateChangedAsync;
                         if (call == callee.Call)
                         {
@@ -181,12 +213,14 @@ namespace CallerCallee.Models
                         call.Dispose();
                         
                         // Implies the call was interrupted
-                        if (Entry.Children.Count > 0)
+                        if (entry.Children.Count > 0)
                         {
-                            Debug.WriteLine($"{Entry.Name}: Call interrupted unexpectedly.");
+                            entry.State = State.Failed;
+                            entry.Exception = new Exception("Call interrupted unexpectedly.");
+                            Debug.WriteLine($"{entry.Id}: {entry.Exception.Message}");
                             WeakReferenceMessenger.Default.Send(
                                 new CallInterrupted(
-                                    new Exception("Call interrupted unexpectedly")
+                                    entry.Exception
                                 )
                             );
                         }
@@ -212,7 +246,8 @@ namespace CallerCallee.Models
 
         private void NextTurn()
         {                        
-            var turn = Entry.Children.Dequeue();
+            var turn = entry.Children.Dequeue();
+            currentSpeaker = currentSpeaker.Equals(Speaker.Caller) ? Speaker.Callee : Speaker.Caller;
             WeakReferenceMessenger.Default.Send(
                 new NextTurnBeingPlayed(this)
             );
@@ -220,14 +255,13 @@ namespace CallerCallee.Models
             if (currentSpeaker.Equals(Speaker.Caller))
             {
                 var duration = audioService.PlayAudioFile(caller.AudioDeviceNumber, turn.FilePath, OnPlaybackStopped);
-                Debug.WriteLine($"{Entry.Name}: Caller speaking: {turn.Name}, for {(int)duration.TotalSeconds}s");
+                Debug.WriteLine($"{entry.Id}: Caller speaking: {turn.Id}, for {(int)duration.TotalSeconds}s");
             }
             else
             {
                 var duration = audioService.PlayAudioFile(callee.AudioDeviceNumber, turn.FilePath, OnPlaybackStopped);
-                Debug.WriteLine($"{Entry.Name}: Callee speaking: {turn.Name}, for {(int)duration.TotalSeconds}s");
+                Debug.WriteLine($"{entry.Id}: Callee speaking: {turn.Id}, for {(int)duration.TotalSeconds}s");
             }
-            currentSpeaker = currentSpeaker.Equals(Speaker.Caller) ? Speaker.Callee : Speaker.Caller;
         }
     }
 }

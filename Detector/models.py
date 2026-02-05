@@ -193,8 +193,15 @@ class TranscriptionData:
         )
     
 @dataclass
-class EndOfTranscription:
+class EndOfAnalysis:
     group_id: str
+
+    def to_json(self) -> str:
+        payload = {
+            "group_id": self.group_id,
+        }
+
+        return json.dumps(payload, ensure_ascii=False)
 
 @dataclass
 class SubscriptionValidation:

@@ -12,9 +12,15 @@ namespace CallerCallee.Services
 {
     public sealed class DatasetService
     {
-        private readonly ConcurrentQueue<DatasetEntry> dataset = new();
-        public ConcurrentQueue<DatasetEntry> Dataset { 
-            get { return dataset; } 
+        private readonly ConcurrentQueue<DatasetEntry> todoDataset = new();
+        public ConcurrentQueue<DatasetEntry> TodoDataset { 
+            get { return todoDataset; } 
+        }
+
+        private readonly ConcurrentDictionary<Guid, DatasetEntry> doneDataset = new();
+        public ConcurrentDictionary<Guid, DatasetEntry> DoneDataset
+        {
+            get { return doneDataset; }
         }
 
         private int total = 0;
@@ -25,7 +31,7 @@ namespace CallerCallee.Services
 
         public async Task LoadDatasetEntries(string sourcePath)
         {
-            dataset.Clear();
+            todoDataset.Clear();
 
             var data = await File.ReadAllTextAsync(sourcePath);
             var rows = data.Split(Environment.NewLine);
@@ -36,7 +42,7 @@ namespace CallerCallee.Services
                 .Select(FindTurnsOfConversation)
                 .Where(d => d.Children is not null)
                 .ToList()
-                .ForEach(dataset.Enqueue);
+                .ForEach(todoDataset.Enqueue);
         }
 
         internal DatasetEntry FindTurnsOfConversation(DatasetEntry entry)
@@ -55,10 +61,10 @@ namespace CallerCallee.Services
                     .OrderBy(f => int.Parse(f.Name.Replace(".wav", "")))
                     .Select(f => new DatasetEntry
                     {
-                        Name = f.Name,
-                        Type = DisplayType.TurnOfConversation,
+                        Id = f.Name,
+                        Type = EntryType.TurnOfConversation,
                         FilePath = f.FullName,
-                        Kind = entry.Kind,
+                        Is = entry.Is,
                     })]);
 
                 total += entry.Children.Count;
@@ -74,9 +80,9 @@ namespace CallerCallee.Services
             var parentOfParentPath = new DirectoryInfo(parentPath).Parent ?? throw new KeyNotFoundException("FilePath should not be empty");
             return new DatasetEntry
             {
-                Name = columns[0],
-                Type = DisplayType.Call,
-                Kind = columns[2].Equals("0") ? Flag.NotVishing : Flag.Vishing,
+                Id = columns[0],
+                Type = EntryType.Call,
+                Is = columns[2].Equals("0") ? Flag.Safe : Flag.Fraud,
                 FilePath = Path.Combine(
                     parentOfParentPath.FullName,
                     columns[2].Equals("0") ? "nv" : "v",

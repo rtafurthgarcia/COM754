@@ -9,6 +9,7 @@ using Microsoft.UI;
 using Microsoft.UI.Dispatching;
 using Microsoft.Windows.AppNotifications;
 using Microsoft.Windows.AppNotifications.Builder;
+using Microsoft.Windows.Storage.Pickers;
 using System;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -20,6 +21,8 @@ namespace CallerCallee.ViewModels
     public partial class MainPageViewModel : ObservableRecipient, IRecipient<CallInitiated>, IRecipient<CallCompleted>, IRecipient<CallInterrupted>
     {
         public ObservableCollection<PhoneCall> DataSource { get; } = [];
+        public ObservableCollection<DatasetEntry> DatasetEntries { get; } = [];
+        public ObservableCollection<DatasetEntry> Dete { get; } = [];
 
         [ObservableProperty]
         [NotifyCanExecuteChangedFor(nameof(RunSimulationCommand))]
@@ -44,7 +47,7 @@ namespace CallerCallee.ViewModels
         private readonly AuthenticationService authenticationService = Ioc.Default.GetRequiredService<AuthenticationService>();
         private readonly SettingsService settingsService = Ioc.Default.GetRequiredService<SettingsService>();
 
-        DispatcherQueue dispatcherQueue = DispatcherQueue.GetForCurrentThread();
+        private readonly DispatcherQueue dispatcherQueue = DispatcherQueue.GetForCurrentThread();
 
         public MainPageViewModel()
         {
@@ -70,7 +73,7 @@ namespace CallerCallee.ViewModels
         [RelayCommand]
         public async Task ImportDatasetAsync(WindowId id)
         {
-            var file = await FilePickerService.PickFileDialogAsync(id);
+            var file = await PickFileDialogAsync(id);
             LoadedDatasetMessage = file != null
                     ? "Picked: " + new FileInfo(file.Path).Name
                     : "No datasource selected.";
@@ -80,7 +83,7 @@ namespace CallerCallee.ViewModels
             }
 
             await datasetService.LoadDatasetEntries(file.Path);
-            DatasetCount = datasetService.Dataset is null ? 0 : datasetService.Total;
+            DatasetCount = datasetService.TodoDataset is null ? 0 : datasetService.Total;
             settingsService.SetValue("datasetpath", file.Path);
         }
 
@@ -131,7 +134,7 @@ namespace CallerCallee.ViewModels
             try
             {
                 await datasetService.LoadDatasetEntries(path);
-                DatasetCount = datasetService.Dataset is null ? 0 : datasetService.Dataset.Count;
+                DatasetCount = datasetService.TodoDataset is null ? 0 : datasetService.TodoDataset.Count;
                 await AuthenticateCommand.ExecuteAsync(null);
                 await RunSimulationCommand.ExecuteAsync(null);
             }
@@ -170,6 +173,20 @@ namespace CallerCallee.ViewModels
         {
             OnPropertyChanged(nameof(Progression));
             Progression += 1;
+        }
+
+        public static async Task<PickFileResult> PickFileDialogAsync(WindowId id)
+        {
+            var picker = new FileOpenPicker(id)
+            {
+                CommitButtonText = "Pick File",
+                SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
+                ViewMode = PickerViewMode.List
+            };
+            picker.FileTypeFilter.Add(".csv");
+
+            // Show the picker dialog window
+            return await picker.PickSingleFileAsync();
         }
     }
 }

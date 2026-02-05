@@ -28,7 +28,7 @@
                     <ColumnDefinition Width="*"></ColumnDefinition>
                 </Grid.ColumnDefinitions>
                 <TextBlock TextAlignment="Center" Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2" FontSize="18" FontWeight="Bold"
-                    Text="{x:Bind x:String.Format('Call #{0}', Entry.Name)}"/>
+                    Text="{x:Bind x:String.Format('Call #{0}', Entry.Id)}"/>
                 <Button Grid.Row="1" Grid.Column="0" >
                     <StackPanel>
                         <FontIcon Glyph="&#xEA8C;"/>
@@ -42,7 +42,7 @@
                     </StackPanel>
                 </Button>
                 <TextBlock TextAlignment="Center" Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2" FontSize="18" FontWeight="Bold"
-                    Text="{x:Bind x:String.Format('Turn #{0}', CurrentTurn.Name)}"/>
+                    Text="{x:Bind x:String.Format('Turn #{0}', CurrentTurn.Id)}"/>
             </Grid>
         </DataTemplate>
     </Page.Resources>
