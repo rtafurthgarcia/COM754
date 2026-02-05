@@ -17,14 +17,10 @@ namespace CallerCallee.Services
         private readonly AuthenticationService authenticationService = Ioc.Default.GetRequiredService<AuthenticationService>();
         private readonly AudioService audioService = Ioc.Default.GetRequiredService<AudioService>();
 
-        CallerCalleeService() 
+        public async Task StartSimulation(int maxAmountOfParallelCalls)
         {
             var csEndpoint = authenticationService.KeyVault.GetSecret(AuthenticationService.CS_ENDPOINT_NAME).Value;
             communicationIdentity = new CommunicationIdentityClient(new Uri(csEndpoint.Value), authenticationService.Credential);
-        }       
-
-        public async Task StartSimulation(int maxAmountOfParallelCalls)
-        {
             ArgumentNullException.ThrowIfNull(authenticationService.Credential);
 
             semaphore = new SemaphoreSlim(maxAmountOfParallelCalls, maxAmountOfParallelCalls);

@@ -16,7 +16,7 @@ namespace CallerCallee.Services
         public static readonly string SB_CONNECTION_STRING = "com754-sb-connectionstring";
 
         private string keyVaultName;
-        private readonly DefaultAzureCredential credential;
+        private DefaultAzureCredential credential;
         private SecretClient kvClient;
 
         public SecretClient KeyVault { 
@@ -27,13 +27,9 @@ namespace CallerCallee.Services
             get { return credential; }
         }
 
-        public AuthenticationService()
-        {
-            credential = new DefaultAzureCredential();
-        }
-
         public async Task<DefaultAzureCredential> AuthenticateAsync()
         {
+            credential = new DefaultAzureCredential();
             keyVaultName ??= await GetKeyVaultNameAsync(credential);
             var kvUri = "https://" + keyVaultName + ".vault.azure.net";
             kvClient = new SecretClient(new Uri(kvUri), credential);
