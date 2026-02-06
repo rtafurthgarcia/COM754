@@ -7,22 +7,25 @@ using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using Microsoft.UI;
 using Microsoft.UI.Dispatching;
+using Microsoft.UI.Xaml.Controls;
 using Microsoft.Windows.AppNotifications;
 using Microsoft.Windows.AppNotifications.Builder;
 using Microsoft.Windows.Storage.Pickers;
 using System;
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
+using Windows.ApplicationModel.Chat;
 using static CallerCallee.Models.SystemwideMessage;
 
 namespace CallerCallee.ViewModels
 {
-    public partial class MainPageViewModel : ObservableRecipient, IRecipient<CallInitiated>, IRecipient<CallCompleted>, IRecipient<CallInterrupted>
+    public partial class MainPageViewModel : ObservableRecipient, 
+        IRecipient<CallInitiated>, IRecipient<CallCompleted>, IRecipient<CallInterrupted>, IRecipient<NextTurnBeingPlayed>
     {
-        public ObservableCollection<PhoneCall> DataSource { get; } = [];
+        public ObservableCollection<PhoneCallViewModel> DataSource { get; } = [];
         public ObservableCollection<DatasetEntry> DatasetEntries { get; } = [];
-        public ObservableCollection<DatasetEntry> Dete { get; } = [];
 
         [ObservableProperty]
         [NotifyCanExecuteChangedFor(nameof(RunSimulationCommand))]
@@ -33,7 +36,10 @@ namespace CallerCallee.ViewModels
 
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(DataSource))]
+        [NotifyPropertyChangedFor(nameof(ProgressionTitle))]
         public partial int Progression { get; set; } = 0;
+
+        public string ProgressionTitle => $"Progression: {Progression} / {DatasetCount}";
 
         [ObservableProperty]
         public partial bool Autorun { get; set; } = false;
@@ -154,7 +160,13 @@ namespace CallerCallee.ViewModels
         {
             dispatcherQueue.TryEnqueue(() =>
             {
-                DataSource.Add(message.Value);
+                var phoneCall = new PhoneCallViewModel(message.Value)
+                {
+                    CurrentTurnId = message.Value.Entry.Children.Peek().Id,
+                    CallerSymbol = Symbol.Volume,
+                    CalleeSymbol = Symbol.Mute
+                };
+                DataSource.Add(phoneCall);
             });
         }
 
@@ -162,17 +174,26 @@ namespace CallerCallee.ViewModels
         {
             dispatcherQueue.TryEnqueue(() =>
             {
-                if (DataSource.Contains(message.Value))
+                var phoneCall = DataSource.Where(vm => vm.Id == message.Value.Entry.Id)
+                    .FirstOrDefault();
+                if (phoneCall != null)
                 {
-                    DataSource.Remove(message.Value);
+                    phoneCall.State = message.Value.Entry.State;
+                    phoneCall.CurrentTurnId = "";
+                    phoneCall.CallerSymbol = Symbol.Mute;
+                    phoneCall.CalleeSymbol = Symbol.Mute;
                 }
             });
         }
 
         public void Receive(CallInterrupted message)
         {
-            OnPropertyChanged(nameof(Progression));
-            Progression += 1;
+            dispatcherQueue.TryEnqueue(() =>
+            {
+                Progression += 1;
+                DataSource.Remove(DataSource.Where(vm => vm.Id == message.Value.Entry.Id)
+                    .FirstOrDefault());
+            });
         }
 
         public static async Task<PickFileResult> PickFileDialogAsync(WindowId id)
@@ -187,6 +208,40 @@ namespace CallerCallee.ViewModels
 
             // Show the picker dialog window
             return await picker.PickSingleFileAsync();
+        }
+
+        public void Receive(NextTurnBeingPlayed message)
+        {
+            dispatcherQueue.TryEnqueue(() =>
+            {
+                var phoneCall = DataSource.Where(vm => vm.Id == message.Value.Entry.Id)
+                    .FirstOrDefault();
+                if (phoneCall != null)
+                {
+                    phoneCall.State = message.Value.Entry.State;
+                    if (message.Value.CurrentSpeaker.Equals(Speaker.Caller))
+                    {
+                        phoneCall.CallerSymbol = Symbol.Volume;
+                        phoneCall.CalleeSymbol = Symbol.Mute;
+                    }
+                    else
+                    {
+                        phoneCall.CallerSymbol = Symbol.Mute;
+                        phoneCall.CalleeSymbol = Symbol.Volume;
+                    }
+
+                    if (message.Value.CurrentTurn != null)
+                    {
+                        phoneCall.CurrentTurnId = message.Value.CurrentTurn.Id;
+                    }
+                    else
+                    {
+                        phoneCall.CurrentTurnId = "";
+                        phoneCall.CallerSymbol = Symbol.Mute;
+                        phoneCall.CalleeSymbol = Symbol.Mute;
+                    }
+                }
+            });
         }
     }
 }

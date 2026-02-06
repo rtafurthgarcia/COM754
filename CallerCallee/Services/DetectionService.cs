@@ -3,7 +3,6 @@ using CallerCallee.Models;
 using CommunityToolkit.Mvvm.DependencyInjection;
 using CommunityToolkit.Mvvm.Messaging;
 using System;
-using System.Collections.Concurrent;
 using System.Threading.Tasks;
 using static CallerCallee.Models.SystemwideMessage;
 

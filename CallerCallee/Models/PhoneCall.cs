@@ -1,6 +1,7 @@
 ﻿using Azure.Communication.Calling.WindowsClient;
 using Azure.Communication.Identity;
 using CallerCallee.Services;
+using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.DependencyInjection;
 using CommunityToolkit.Mvvm.Messaging;
 using System;
@@ -40,10 +41,7 @@ namespace CallerCallee.Models
             get { return entry; }
         }
 
-        public DatasetEntry CurrentTurn
-        {
-            get => entry.Children.Count > 0 ? entry.Children.Peek() : null;
-        }
+        public DatasetEntry CurrentTurn => entry.Children.Count > 0 ? entry.Children.Peek() : null;
 
         private readonly GroupCallLocator groupCallLocator = new(Guid.NewGuid());
         public Guid Guid
@@ -51,7 +49,10 @@ namespace CallerCallee.Models
             get { return groupCallLocator.GroupId; }
         }
         private Speaker currentSpeaker = Speaker.Callee; // will be switched to caller at the beginning of the call,
-                                                         // so that the first turn gets played by the caller as intended.
+                                                         // so that the first turn gets played by the caller as intende
+        public Speaker CurrentSpeaker { 
+            get { return currentSpeaker; }
+        }
         private readonly CallTokenRefreshOptions callTokenRefreshOptions = new(true);
         private readonly CallClientOptions callClientOptions = new()
         {
@@ -220,7 +221,7 @@ namespace CallerCallee.Models
                             Debug.WriteLine($"{entry.Id}: {entry.Exception.Message}");
                             WeakReferenceMessenger.Default.Send(
                                 new CallInterrupted(
-                                    entry.Exception
+                                    this
                                 )
                             );
                         }

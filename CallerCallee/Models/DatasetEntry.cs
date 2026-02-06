@@ -10,7 +10,7 @@ namespace CallerCallee.Models
 {
     // Odd structure I admit, but it was meant to be displayed originally in a tree-like component,
     // then I got too busy to refactorise it after dropping the idea.
-    public record DatasetEntry
+    public record  DatasetEntry
     {
         public string Id { get; set; }
         public Flag Is { get; set; }

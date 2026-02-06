@@ -17,7 +17,7 @@ namespace CallerCallee.Models
         {
         }
 
-        public class CallInterrupted(Exception exception) : ValueChangedMessage<Exception>(exception)
+        public class CallInterrupted(PhoneCall call) : ValueChangedMessage<PhoneCall>(call)
         {
         }
 
