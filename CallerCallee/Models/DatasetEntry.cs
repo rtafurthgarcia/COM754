@@ -14,6 +14,7 @@ namespace CallerCallee.Models
     {
         public string Id { get; set; }
         public Flag Is { get; set; }
+        public Flag HumanClassification { get; set; }
         public string FilePath { get; set; }
         public EntryType Type { get; set; }
         public Queue<DatasetEntry> Children { get; set; }

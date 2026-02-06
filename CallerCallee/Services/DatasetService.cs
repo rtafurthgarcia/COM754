@@ -29,20 +29,22 @@ namespace CallerCallee.Services
             get { return total; }
         }
 
-        public async Task LoadDatasetEntries(string sourcePath)
+        public async Task<List<DatasetEntry>> LoadDatasetEntries(string sourcePath)
         {
             todoDataset.Clear();
 
             var data = await File.ReadAllTextAsync(sourcePath);
             var rows = data.Split(Environment.NewLine);
-            rows
+            var results = rows
                 .Skip(1)
                 .Where(row => row.Length > 3)
                 .Select(s => ParseRow(s, sourcePath))
                 .Select(FindTurnsOfConversation)
                 .Where(d => d.Children is not null)
-                .ToList()
+                .ToList();
+            results
                 .ForEach(todoDataset.Enqueue);
+            return results;
         }
 
         internal DatasetEntry FindTurnsOfConversation(DatasetEntry entry)
@@ -64,7 +66,7 @@ namespace CallerCallee.Services
                         Id = f.Name,
                         Type = EntryType.TurnOfConversation,
                         FilePath = f.FullName,
-                        Is = entry.Is,
+                        Is = entry.Is
                     })]);
 
                 total += entry.Children.Count;
@@ -82,6 +84,7 @@ namespace CallerCallee.Services
             {
                 Id = columns[0],
                 Type = EntryType.Call,
+                HumanClassification = columns[1].Equals("0") ? Flag.Safe : Flag.Fraud,
                 Is = columns[2].Equals("0") ? Flag.Safe : Flag.Fraud,
                 FilePath = Path.Combine(
                     parentOfParentPath.FullName,

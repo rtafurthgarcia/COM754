@@ -5,28 +5,34 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.DependencyInjection;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
+using CommunityToolkit.WinUI.Collections;
+using Microsoft.Azure.Amqp.Framing;
 using Microsoft.UI;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.Windows.AppNotifications;
 using Microsoft.Windows.AppNotifications.Builder;
 using Microsoft.Windows.Storage.Pickers;
+using Microsoft.WindowsAppSDK.Runtime;
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Windows.ApplicationModel.Chat;
+using WinUI.TableView;
 using static CallerCallee.Models.SystemwideMessage;
 
 namespace CallerCallee.ViewModels
 {
     public partial class MainPageViewModel : ObservableRecipient, 
-        IRecipient<CallInitiated>, IRecipient<CallCompleted>, IRecipient<CallInterrupted>, IRecipient<NextTurnBeingPlayed>
+        IRecipient<CallInitiated>, IRecipient<CallCompleted>, IRecipient<CallInterrupted>, IRecipient<NextTurnBeingPlayed>,
+        IRecipient<DetectionResultReceived>, IRecipient<EndOfAnalysis>
     {
         public ObservableCollection<PhoneCallViewModel> DataSource { get; } = [];
-        public ObservableCollection<DatasetEntry> DatasetEntries { get; } = [];
-
+        public ObservableCollection<DatasetViewModel> DataSource2 { get; } = [];
+        
         [ObservableProperty]
         [NotifyCanExecuteChangedFor(nameof(RunSimulationCommand))]
         public partial string LoadedDatasetMessage { get; set; }
@@ -54,6 +60,8 @@ namespace CallerCallee.ViewModels
         private readonly SettingsService settingsService = Ioc.Default.GetRequiredService<SettingsService>();
 
         private readonly DispatcherQueue dispatcherQueue = DispatcherQueue.GetForCurrentThread();
+
+        private State SelectedState = State.Todo;
 
         public MainPageViewModel()
         {
@@ -88,9 +96,11 @@ namespace CallerCallee.ViewModels
                 return;
             }
 
-            await datasetService.LoadDatasetEntries(file.Path);
-            DatasetCount = datasetService.TodoDataset is null ? 0 : datasetService.Total;
+            var list = await datasetService.LoadDatasetEntries(file.Path);
+            DatasetCount = datasetService.TodoDataset is null ? 0 : datasetService.TodoDataset.Count;
             settingsService.SetValue("datasetpath", file.Path);
+
+            list.ForEach(d => DataSource2.Add(new DatasetViewModel(d)));        
         }
 
         [RelayCommand(CanExecute = nameof(CanRunSimulation))]
@@ -139,7 +149,8 @@ namespace CallerCallee.ViewModels
 
             try
             {
-                await datasetService.LoadDatasetEntries(path);
+                var list = await datasetService.LoadDatasetEntries(path);
+                list.ForEach(d => DataSource2.Add(new DatasetViewModel(d)));
                 DatasetCount = datasetService.TodoDataset is null ? 0 : datasetService.TodoDataset.Count;
                 await AuthenticateCommand.ExecuteAsync(null);
                 await RunSimulationCommand.ExecuteAsync(null);
@@ -154,6 +165,45 @@ namespace CallerCallee.ViewModels
 
                 AppNotificationManager.Default.Show(notification);
             }
+        }
+
+        public bool Filter(object item)
+        {
+            var model = (DatasetViewModel)item;
+            if (model is null)
+            {
+                return false;
+            } 
+            else
+            {
+               return model.State.Equals(SelectedState);
+            }
+        }
+
+        [RelayCommand]
+        public void ChangeTab(int index)
+        {
+            SelectedState = index switch
+            {
+                0 => State.Todo,
+                1 => State.Completed,
+                2 => State.Failed,
+                _ => State.Todo
+            };
+        }
+
+        public static async Task<PickFileResult> PickFileDialogAsync(WindowId id)
+        {
+            var picker = new FileOpenPicker(id)
+            {
+                CommitButtonText = "Pick File",
+                SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
+                ViewMode = PickerViewMode.List
+            };
+            picker.FileTypeFilter.Add(".csv");
+
+            // Show the picker dialog window
+            return await picker.PickSingleFileAsync();
         }
 
         public void Receive(CallInitiated message) 
@@ -193,21 +243,8 @@ namespace CallerCallee.ViewModels
                 Progression += 1;
                 DataSource.Remove(DataSource.Where(vm => vm.Id == message.Value.Entry.Id)
                     .FirstOrDefault());
+                
             });
-        }
-
-        public static async Task<PickFileResult> PickFileDialogAsync(WindowId id)
-        {
-            var picker = new FileOpenPicker(id)
-            {
-                CommitButtonText = "Pick File",
-                SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
-                ViewMode = PickerViewMode.List
-            };
-            picker.FileTypeFilter.Add(".csv");
-
-            // Show the picker dialog window
-            return await picker.PickSingleFileAsync();
         }
 
         public void Receive(NextTurnBeingPlayed message)
@@ -242,6 +279,16 @@ namespace CallerCallee.ViewModels
                     }
                 }
             });
+        }
+
+        public void Receive(EndOfAnalysis message)
+        {
+            throw new NotImplementedException();
+        }
+
+        public void Receive(DetectionResultReceived message)
+        {
+            throw new NotImplementedException();
         }
     }
 }

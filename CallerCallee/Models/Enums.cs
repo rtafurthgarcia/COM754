@@ -28,9 +28,9 @@ namespace CallerCallee.Models
     public enum State
     {
         Todo,
-        Ongoing,
-        WaitingForClassification,
         Completed,
         Failed,
+        Ongoing,
+        WaitingForClassification,
     }
 }
