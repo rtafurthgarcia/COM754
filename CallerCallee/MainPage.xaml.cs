@@ -42,7 +42,7 @@ namespace CallerCallee
                         TableView.Columns.Where(c => c.Header.ToString().Equals("LastException")).First().Visibility = Visibility.Collapsed;
                         TableView.Columns.Where(c => c.Header.ToString().Equals("Naive")).First().Visibility = Visibility.Collapsed;
                         TableView.Columns.Where(c => c.Header.ToString().Equals("Enhanced")).First().Visibility = Visibility.Collapsed;
-                        TableView.Columns.Where(c => c.Header.ToString().Equals("RunningTime")).First().Visibility = Visibility.Collapsed;
+                        TableView.Columns.Where(c => c.Header.ToString().Equals("RealDuration")).First().Visibility = Visibility.Collapsed;
                         TableView.ShowExportOptions = false;
                         break;
                     }
@@ -52,7 +52,7 @@ namespace CallerCallee
                         TableView.Columns.Where(c => c.Header.ToString().Equals("LastException")).First().Visibility = Visibility.Collapsed;
                         TableView.Columns.Where(c => c.Header.ToString().Equals("Naive")).First().Visibility = Visibility.Visible;
                         TableView.Columns.Where(c => c.Header.ToString().Equals("Enhanced")).First().Visibility = Visibility.Visible;
-                        TableView.Columns.Where(c => c.Header.ToString().Equals("RunningTime")).First().Visibility = Visibility.Visible;
+                        TableView.Columns.Where(c => c.Header.ToString().Equals("RealDuration")).First().Visibility = Visibility.Visible;
                         TableView.ShowExportOptions = true;
                         break;
                     }
@@ -62,7 +62,7 @@ namespace CallerCallee
                         TableView.Columns.Where(c => c.Header.ToString().Equals("LastException")).First().Visibility = Visibility.Visible;
                         TableView.Columns.Where(c => c.Header.ToString().Equals("Naive")).First().Visibility = Visibility.Visible;
                         TableView.Columns.Where(c => c.Header.ToString().Equals("Enhanced")).First().Visibility = Visibility.Visible;
-                        TableView.Columns.Where(c => c.Header.ToString().Equals("RunningTime")).First().Visibility = Visibility.Visible;
+                        TableView.Columns.Where(c => c.Header.ToString().Equals("RealDuration")).First().Visibility = Visibility.Visible;
                         TableView.ShowExportOptions = true;
                         break;
                     }

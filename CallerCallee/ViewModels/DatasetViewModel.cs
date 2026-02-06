@@ -29,8 +29,7 @@ namespace CallerCallee.ViewModels
         [ObservableProperty]
         public partial Exception LastException { get; set; }
 
-        [ObservableProperty]
-        public partial string RunningTime { get; set; }
+        public string RealDuration => datasetEntry.RealDuration;
 
         public Brush GetRightColor(Flag flag)
         {

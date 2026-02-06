@@ -1,11 +1,14 @@
 ﻿using CallerCallee.Models;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Messaging;
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using System;
 using System.Diagnostics;
+using System.Linq;
+using static CallerCallee.Models.SystemwideMessage;
 
 namespace CallerCallee.ViewModels
 {
@@ -17,7 +20,7 @@ namespace CallerCallee.ViewModels
         public PhoneCallViewModel(PhoneCall phoneCall)
         {
             this.phoneCall = phoneCall;
-            RunningTime = "00:00";
+            RealDuration = "00:00";
 
             // Initialize the timer
             _timer = new DispatcherTimer
@@ -57,7 +60,10 @@ namespace CallerCallee.ViewModels
         public partial Flag Enhanced { get; set; } = Flag.Unknown;
 
         [ObservableProperty]
-        public partial string RunningTime { get; set; }
+        public partial string RealDuration { get; set; }
+
+        [ObservableProperty]
+        public partial float LastResultTimestamp { get; set; }
 
         private readonly DispatcherTimer _timer;
         private readonly Stopwatch _stopwatch = Stopwatch.StartNew();
@@ -65,14 +71,29 @@ namespace CallerCallee.ViewModels
         private void OnTick(object sender, object e)
         {
             // DispatcherTimer runs on UI thread, so this is safe
-            RunningTime = _stopwatch.Elapsed.ToString(@"mm\:ss");
+            RealDuration = _stopwatch.Elapsed.ToString(@"mm\:ss");
+            Entry.RealDuration = RealDuration;
+
+            if (_stopwatch.Elapsed.TotalSeconds - LastResultTimestamp > 120)
+            {
+                // If the last result is older than 2 minutes, is likely failed
+                Naive = Flag.Unknown;
+                Enhanced = Flag.Unknown;
+                State = State.Failed;
+                StopTimer();
+                WeakReferenceMessenger.Default.Send(
+                    new CallInterrupted(
+                        phoneCall
+                    )
+                );
+            }
         }
 
         public void StopTimer()
         {
+            _timer.Tick -= OnTick;
             _timer.Stop();
             _stopwatch.Stop();
-            _timer.Tick -= OnTick;
         }
 
         public Brush GetRightColor(Flag flag)
@@ -88,6 +109,17 @@ namespace CallerCallee.ViewModels
             else
             {
                 return new SolidColorBrush(Colors.Gray);
+            }
+        }
+
+        public Brush GetRightColorState(State state)
+        {
+            switch (state)
+            {
+                case State.Failed:
+                    return new SolidColorBrush(Colors.Crimson);
+                default:
+                    return new SolidColorBrush(Colors.Gray);
             }
         }
     }

@@ -83,8 +83,10 @@ def create_app(container: Container) -> FastAPI:
 
         except WebSocketDisconnect:
             logger.info(f"{__name__}: disconnected")
+        except asyncio.CancelledError as e:
+            logger.error(f"{__name__}: connection lost due to an unexpected thread cancellation: {e}")
         except Exception as e:
-            logger.info(f"{__name__}: closed unexpectedly due to an error: {e}")
+            logger.error(f"{__name__}: connection lost due to an unexpected error: {e}")
         finally:
             manager.remove(websocket)
             if (call_connection_id is not None):

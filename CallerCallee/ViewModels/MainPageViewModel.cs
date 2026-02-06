@@ -238,8 +238,10 @@ namespace CallerCallee.ViewModels
             dispatcherQueue.TryEnqueue(() =>
             {
                 ProgressionFailed += 1;
-                DataSource.Remove(DataSource.Where(vm => vm.Id == message.Value.Entry.Id)
-                    .FirstOrDefault());
+                var phoneCall = DataSource.Where(vm => vm.Id == message.Value.Entry.Id)
+                    .FirstOrDefault();
+                phoneCall.StopTimer();
+                DataSource.Remove(phoneCall);
                 message.Value.Entry.State = State.Failed;
                 DataSource2.Add(new DatasetViewModel(message.Value.Entry));
             });
@@ -286,6 +288,7 @@ namespace CallerCallee.ViewModels
                 ProgressionCompleted += 1;
                 var phoneCall = DataSource.Where(vm => vm.Guid.Equals(message.Value))
                     .FirstOrDefault();
+                phoneCall.StopTimer();
                 DataSource.Remove(phoneCall);
                 DataSource2.Add(new DatasetViewModel(datasetService.DoneDataset[message.Value]));
             });
@@ -297,6 +300,7 @@ namespace CallerCallee.ViewModels
             {
                 var phoneCall = DataSource.Where(vm => vm.Guid.Equals(message.Value))
                     .FirstOrDefault();
+                phoneCall.LastResultTimestamp = new DateTimeOffset(DateTime.UtcNow).ToUnixTimeSeconds();
                 phoneCall.Naive = datasetService.DoneDataset[message.Value].DetectionResults.LastOrDefault().NaiveClassification.Flag;
                 phoneCall.Enhanced = datasetService.DoneDataset[message.Value].DetectionResults.LastOrDefault().EnhancedClassification.Flag;
             });

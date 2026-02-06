@@ -103,12 +103,12 @@ namespace CallerCallee.Models
                 Flag flag = Flag.Unknown;
                 float duration = 0;
 
-                if (value.TryGetProperty("flag", out var flagProp))
+                if (value.TryGetProperty("answer", out var flagProp))
                 {
                     flag = Enum.Parse<Flag>(flagProp.GetString()!, ignoreCase: true);
                 }
 
-                if (value.TryGetProperty("duration", out var durationProp))
+                if (value.TryGetProperty("timestamp", out var durationProp))
                 {
                     duration = durationProp.GetSingle() - startTimestamp;
                 }

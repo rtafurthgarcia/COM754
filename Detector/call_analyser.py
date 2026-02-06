@@ -124,16 +124,19 @@ class CallAnalyser:
                     enhanced_classification = Classification(answer="FRAUD", timestamp=worst_timestamp)
                 else:
                     enhanced_classification = Classification(answer="SAFE", timestamp=worst_timestamp)
-        except Exception as e:
-            logger.info(f"{__name__}: {call_id}: Failed to asssess this turn of conversation: {e}")
+        except asyncio.CancelledError as e:
+            logger.error(f"{__name__}: {call_id}: Failed to asssess this turn of conversation due to the following error: {e}")
 
-        await self._send_turn_analysis_result(
-            self._ongoing_calls[call_id].conclude(
-                timestamp, 
-                naive_classification, 
-                enhanced_classification
-            )
-        ) 
+        try:
+            await self._send_turn_analysis_result(
+                self._ongoing_calls[call_id].conclude(
+                    timestamp, 
+                    naive_classification, 
+                    enhanced_classification
+                )
+            ) 
+        except Exception as e:
+            logger.error(f"{__name__}: {call_id}: Failed to send the analysis' results due to the following error: {e}")
         
     async def _analyse_call_for_vishing(self, call_id: str, prompt: str, object):
         content = str(self._ongoing_calls[call_id].conversation_to_str())
@@ -168,12 +171,16 @@ class CallAnalyser:
             logger.info(f"{__name__}: #{turn.group_id}: {turn.id}: turn analysed.")
 
     async def notify_end_of_analysis(self, call_id: str):
-        call = self._ongoing_calls[call_id]
+        try:
+            call = self._ongoing_calls[call_id]
 
-        async with self._lock:
-            self._servicebus_sender.send_messages(
-                message=ServiceBusMessage(EndOfAnalysis(call.group_id).to_json(), subject="END_OF_ANALYSIS")
-            ) 
-            logger.info(f"{__name__}: {call.group_id}: end of analysis.")
-
-        del self._ongoing_calls[call_id]
+            async with self._lock:
+                self._servicebus_sender.send_messages(
+                    message=ServiceBusMessage(EndOfAnalysis(call.group_id).to_json(), subject="END_OF_ANALYSIS")
+                ) 
+                logger.info(f"{__name__}: {call.group_id}: end of analysis.")
+        except Exception as e:
+            logger.error(f"{__name__}: #{call_id}: Couldn't notify client of the end of the analysis due to the following error:")
+            logger.error(f"{__name__}: #{call_id}: {e}")
+        finally:
+            del self._ongoing_calls[call_id]
