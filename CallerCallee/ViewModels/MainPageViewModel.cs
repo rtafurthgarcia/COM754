@@ -5,23 +5,17 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.DependencyInjection;
 using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
-using CommunityToolkit.WinUI.Collections;
-using Microsoft.Azure.Amqp.Framing;
 using Microsoft.UI;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.Windows.AppNotifications;
 using Microsoft.Windows.AppNotifications.Builder;
 using Microsoft.Windows.Storage.Pickers;
-using Microsoft.WindowsAppSDK.Runtime;
 using System;
-using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
-using Windows.ApplicationModel.Chat;
-using WinUI.TableView;
 using static CallerCallee.Models.SystemwideMessage;
 
 namespace CallerCallee.ViewModels
@@ -41,11 +35,15 @@ namespace CallerCallee.ViewModels
         public partial int? DatasetCount { get; set; }
 
         [ObservableProperty]
-        [NotifyPropertyChangedFor(nameof(DataSource))]
         [NotifyPropertyChangedFor(nameof(ProgressionTitle))]
-        public partial int Progression { get; set; } = 0;
+        public partial int ProgressionCompleted { get; set; } = 0;
 
-        public string ProgressionTitle => $"Progression: {Progression} / {DatasetCount}";
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(ProgressionTitle))]
+        public partial int ProgressionFailed { get; set; } = 0;
+
+        public int Progression => ProgressionFailed + ProgressionCompleted;
+        public string ProgressionTitle => string.Format("Progression: {0} / {1}", ProgressionCompleted + ProgressionFailed, DatasetCount);
 
         [ObservableProperty]
         public partial bool Autorun { get; set; } = false;
@@ -108,7 +106,6 @@ namespace CallerCallee.ViewModels
         {
             try
             {
-                Progression = 0;
                 await callerCalleeService.StartSimulation(1);
             } 
             catch (Exception e)
@@ -240,10 +237,11 @@ namespace CallerCallee.ViewModels
         {
             dispatcherQueue.TryEnqueue(() =>
             {
-                Progression += 1;
+                ProgressionFailed += 1;
                 DataSource.Remove(DataSource.Where(vm => vm.Id == message.Value.Entry.Id)
                     .FirstOrDefault());
-                
+                message.Value.Entry.State = State.Failed;
+                DataSource2.Add(new DatasetViewModel(message.Value.Entry));
             });
         }
 
@@ -283,12 +281,25 @@ namespace CallerCallee.ViewModels
 
         public void Receive(EndOfAnalysis message)
         {
-            throw new NotImplementedException();
+            dispatcherQueue.TryEnqueue(() =>
+            {
+                ProgressionCompleted += 1;
+                var phoneCall = DataSource.Where(vm => vm.Guid.Equals(message.Value))
+                    .FirstOrDefault();
+                DataSource.Remove(phoneCall);
+                DataSource2.Add(new DatasetViewModel(datasetService.DoneDataset[message.Value]));
+            });
         }
 
         public void Receive(DetectionResultReceived message)
         {
-            throw new NotImplementedException();
+            dispatcherQueue.TryEnqueue(() =>
+            {
+                var phoneCall = DataSource.Where(vm => vm.Guid.Equals(message.Value))
+                    .FirstOrDefault();
+                phoneCall.Naive = datasetService.DoneDataset[message.Value].DetectionResults.LastOrDefault().NaiveClassification.Flag;
+                phoneCall.Enhanced = datasetService.DoneDataset[message.Value].DetectionResults.LastOrDefault().EnhancedClassification.Flag;
+            });
         }
     }
 }

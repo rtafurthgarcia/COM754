@@ -12,6 +12,7 @@ namespace CallerCallee.ViewModels
     public partial class PhoneCallViewModel : ObservableObject
     {
         private readonly PhoneCall phoneCall;
+        public DatasetEntry Entry => phoneCall.Entry;
 
         public PhoneCallViewModel(PhoneCall phoneCall)
         {
@@ -28,6 +29,8 @@ namespace CallerCallee.ViewModels
         }
 
         public string Id => phoneCall.Entry.Id;
+
+        public Guid Guid => phoneCall.Guid;
 
         [ObservableProperty]
         public partial string CurrentTurnId { get; set; }

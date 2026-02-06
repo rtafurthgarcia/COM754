@@ -47,4 +47,5 @@ class Container(containers.DeclarativeContainer):
         servicebus_client=servicebus_client,
         ai_client=ai_client,
         local_endpoint=providers.Callable(lambda s: s.dt_endpoint, secrets),
+        cs_ai_endpoint=providers.Callable(lambda s: s.cs_ai_endpoint, secrets),
     )

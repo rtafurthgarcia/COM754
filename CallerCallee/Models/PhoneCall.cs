@@ -172,7 +172,17 @@ namespace CallerCallee.Models
                 {
                     Debug.WriteLine($"{entry.Id}: Skipping to the next one...");
 
-                    NextTurn();
+                    try
+                    {
+                        NextTurn();
+                    }
+                    catch (Exception innerEx)
+                    {
+                        Debug.WriteLine($"{entry.Id}: Exception in NextTurn after playback failure: {innerEx.Message}");
+                        entry.State = State.Failed;
+                        entry.Exception = innerEx;
+                        await callee.Call.HangUpAsync(new HangUpOptions() { ForEveryone = true });
+                    }
                 }
             }
         }

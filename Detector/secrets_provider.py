@@ -10,6 +10,7 @@ class AppSecrets:
     sb_endpoint: str
     sb_connectionstring: str
     dt_endpoint: str
+    cs_ai_endpoint: str
     ai_endpoint: str
     ai_key: str
 
@@ -27,6 +28,7 @@ class KeyVaultSecretsProvider:
             cs_key=self._client.get_secret("com754-cs-key").value or "",
             dt_endpoint=self._client.get_secret("com754-dt-endpoint").value or "",
             ai_endpoint=self._client.get_secret("com754-ai-endpoint").value or "",
+            cs_ai_endpoint=self._client.get_secret("com754-cs-ai-endpoint").value or "",
             ai_key=self._client.get_secret("com754-ai-key").value or "",
             sb_endpoint=self._client.get_secret("com754-sb-endpoint").value or "",
             sb_connectionstring=self._client.get_secret("com754-sb-connectionstring").value or "",

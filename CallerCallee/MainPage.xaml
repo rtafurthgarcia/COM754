@@ -119,11 +119,13 @@
                     </TabViewItem.IconSource>
                 </TabViewItem>
                 <TabViewItem Header="Completed" IsClosable="False">
+                    <InfoBadge Style="{StaticResource AttentionValueInfoBadgeStyle}" HorizontalAlignment="Right" Value="{x:Bind ViewModel.ProgressionCompleted}" />
                     <TabViewItem.IconSource>
                         <FontIconSource Glyph="&#xE930;" />
                     </TabViewItem.IconSource>
                 </TabViewItem>
                 <TabViewItem Header="Failed" IsClosable="False">
+                    <InfoBadge Style="{StaticResource AttentionValueInfoBadgeStyle}" HorizontalAlignment="Right" Value="{x:Bind ViewModel.ProgressionFailed}" />
                     <TabViewItem.IconSource>
                         <FontIconSource Glyph="&#xE783;" />
                     </TabViewItem.IconSource>

@@ -25,7 +25,7 @@ namespace CallerCallee.Models
         {
         }
 
-        public class DetectionResultReceived(DetectionResult result) : ValueChangedMessage<DetectionResult>(result)
+        public class DetectionResultReceived(Guid guid) : ValueChangedMessage<Guid>(guid)
         {
         }
         public class EndOfAnalysis(Guid guid) : ValueChangedMessage<Guid>(guid)

@@ -3,11 +3,13 @@ using Azure.Identity;
 using Azure.Security.KeyVault.Secrets;
 using CallerCallee.Models;
 using CommunityToolkit.Mvvm.DependencyInjection;
+using CommunityToolkit.Mvvm.Messaging;
 using System;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
+using static CallerCallee.Models.SystemwideMessage;
 
 namespace CallerCallee.Services
 {
@@ -34,6 +36,7 @@ namespace CallerCallee.Services
             int? calleeDevice = null;
             CommunicationUserIdentifierAndToken caller = null;
             CommunicationUserIdentifierAndToken callee = null;
+            PhoneCall phoneCall = null;
 
             while (!datasetService.TodoDataset.IsEmpty) 
             {
@@ -62,7 +65,7 @@ namespace CallerCallee.Services
                 {
                     await semaphore.WaitAsync();
 
-                    var phoneCall = new PhoneCall(
+                    phoneCall = new PhoneCall(
                         caller,
                         callee,
                         (int)callerDevice,
@@ -84,9 +87,15 @@ namespace CallerCallee.Services
                     if (retries.TryGetValue(callEntry, out var retryCount) && retryCount >= 3)
                     {
                         Debug.WriteLine($"{callEntry.Id}: Reached max retry count. Skipping call.");
+                        phoneCall.OnEndOfCall -= CallEnded;
                         callEntry.Exception = e;
                         callEntry.State = State.Failed;
                         datasetService.DoneDataset.TryAdd(Guid.NewGuid(), callEntry);
+                        WeakReferenceMessenger.Default.Send(
+                            new CallInterrupted(
+                                phoneCall
+                            )
+                        );
                     }
                     else
                     {
@@ -105,6 +114,7 @@ namespace CallerCallee.Services
                     callerDevice = null;
                     calleeDevice = null;
                     callEntry = null;
+                    phoneCall = null;
                 }
             }
 

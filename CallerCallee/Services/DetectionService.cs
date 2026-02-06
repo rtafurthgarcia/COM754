@@ -49,7 +49,7 @@ namespace CallerCallee.Services
                 {
                     entry.DetectionResults.Add(detectionResult);
                     datasetService.DoneDataset[groupId] = entry;
-                    WeakReferenceMessenger.Default.Send(new DetectionResultReceived(detectionResult));
+                    WeakReferenceMessenger.Default.Send(new DetectionResultReceived(groupId));
                 }
             } 
             else

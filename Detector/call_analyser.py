@@ -27,7 +27,8 @@ class CallAnalyser:
         identity_client: CommunicationIdentityClient,
         ai_client: AsyncAzureOpenAI,
         servicebus_client: ServiceBusClient, 
-        local_endpoint: str
+        local_endpoint: str,
+        cs_ai_endpoint: str
     ):
         self._call_automation_client = call_automation_client
         self._identity_client = identity_client
@@ -35,7 +36,7 @@ class CallAnalyser:
         self._servicebus_client = servicebus_client
         self._servicebus_sender = servicebus_client.get_queue_sender(self.QUEUE_NAME)
         self._local_endpoint = local_endpoint
-        self._ai_endpoint = ai_client.base_url.scheme
+        self._cs_ai_endpoint = cs_ai_endpoint
 
         self._ongoing_calls: dict[str, OngoingCall] = {}
         self._lock = asyncio.Lock()
@@ -54,7 +55,7 @@ class CallAnalyser:
                 enable_sentiment_analysis=False,
                 speech_recognition_model_endpoint_id=self.TRANSCRIPTION_MODEL
             ),
-            cognitive_services_endpoint=self._ai_endpoint)
+            cognitive_services_endpoint=self._cs_ai_endpoint)
 
         if (accepted_call.call_connection_id is None):
             logger.error(f"{__name__}: No call connection ID found")
