@@ -1,6 +1,7 @@
 
 import asyncio
 import logging
+import stat
 import time
 from azure.communication.callautomation import CallAutomationClient, TranscriptionOptions
 from azure.communication.identity import CommunicationIdentityClient
@@ -13,7 +14,6 @@ logger = logging.getLogger("uvicorn.error")
 
 class CallAnalyser:
     DETECTOR_MODEL = "gpt-5-mini"
-    TRANSCRIPTION_MODEL = "20250808"
     QUEUE_NAME = "detection-results"
 
     def __init__(
@@ -23,6 +23,7 @@ class CallAnalyser:
         ai_client: AsyncAzureOpenAI,
         servicebus_client: ServiceBusClient, 
         local_endpoint: str,
+        cs_ai_endpoint: str,
         sm_endpoint: str
     ):
         self._call_automation_client = call_automation_client
@@ -31,6 +32,7 @@ class CallAnalyser:
         self._servicebus_client = servicebus_client
         self._servicebus_sender = servicebus_client.get_queue_sender(self.QUEUE_NAME)
         self._local_endpoint = local_endpoint
+        self._ai_cs_endpoint = cs_ai_endpoint
         self._sm_endpoint = sm_endpoint
 
         self._ongoing_calls: dict[str, OngoingCall] = {}
@@ -48,9 +50,10 @@ class CallAnalyser:
                 enable_intermediate_results=False,
                 pii_redaction=None,
                 enable_sentiment_analysis=False,
-                speech_recognition_model_endpoint_id=self.TRANSCRIPTION_MODEL
+                speech_recognition_model_endpoint_id=self._sm_endpoint,
+
             ),
-            cognitive_services_endpoint=self._sm_endpoint)
+            cognitive_services_endpoint=self._ai_cs_endpoint)
 
         if (accepted_call.call_connection_id is None):
             logger.error(f"{__name__}: No call connection ID found")
@@ -66,40 +69,49 @@ class CallAnalyser:
 
         return accepted_call.call_connection_id
 
-    def leave_call(self, call_id: str):
-        if call_id not in self._ongoing_calls.keys():
+    def leave_call(self, call_connection_id: str):
+        if call_connection_id not in self._ongoing_calls.keys():
             #self.logger.inf(f"{__name__}: Call with group ID {call.group_id} not found among ongoing calls")
             # disabled cuz suspected it might be triggered 3 times, for each call has 3 participants
             return
 
-        ongoing_call = self._ongoing_calls[call_id]
+        ongoing_call = self._ongoing_calls[call_connection_id]
         ongoing_call.call.hang_up(is_for_everyone=False)
         #
+    
+    def is_still_connected(self, call_connection_id: str) -> bool:
+        if call_connection_id not in self._ongoing_calls.keys():
+            return False
+        
+        ongoing_call = self._ongoing_calls[call_connection_id]
+        state = ongoing_call.call.get_call_properties().call_connection_state
 
-    async def run_analysis(self, call_id: str, new_transcription: TranscriptionData): 
-        timestamp = self._ongoing_calls[call_id].add_new_turn(
+        return state == "connected"
+
+    async def run_analysis(self, call_connection_id: str, new_transcription: TranscriptionData): 
+        timestamp = self._ongoing_calls[call_connection_id].add_new_turn(
             speaker=new_transcription.participantRawID, 
             text=new_transcription.text
         )
 
         future_naive = self._analyse_call_for_vishing(
-            call_id, get_prompts()["naive"], Classification
+            call_connection_id, get_prompts()["naive"], Classification
         )
 
         future_prohibited = self._analyse_call_for_vishing(
-            call_id, get_prompts()["prohibited"], IntermediateClassification
+            call_connection_id, get_prompts()["prohibited"], IntermediateClassification
         )
 
         future_authority = self._analyse_call_for_vishing(
-            call_id, get_prompts()["authority"], IntermediateClassification
+            call_connection_id, get_prompts()["authority"], IntermediateClassification
         )
 
         future_social_proof = self._analyse_call_for_vishing(
-            call_id, get_prompts()["social_proof"], IntermediateClassification
+            call_connection_id, get_prompts()["social_proof"], IntermediateClassification
         )
 
         future_distraction = self._analyse_call_for_vishing(
-            call_id, get_prompts()["distraction"], IntermediateClassification
+            call_connection_id, get_prompts()["distraction"], IntermediateClassification
         )
 
         # naive
@@ -123,21 +135,21 @@ class CallAnalyser:
                 else:
                     enhanced_classification = Classification(answer="SAFE", timestamp=worst_timestamp)
         except asyncio.CancelledError as e:
-            logger.error(f"{__name__}: {call_id}: Failed to asssess this turn of conversation due to the following error: {e}")
+            logger.error(f"{__name__}: {call_connection_id}: Failed to asssess this turn of conversation due to the following error: {e}")
 
         try:
             await self._send_turn_analysis_result(
-                self._ongoing_calls[call_id].conclude(
+                self._ongoing_calls[call_connection_id].conclude(
                     timestamp, 
                     naive_classification, 
                     enhanced_classification
                 )
             ) 
         except Exception as e:
-            logger.error(f"{__name__}: {call_id}: Failed to send the analysis' results due to the following error: {e}")
+            logger.error(f"{__name__}: {call_connection_id}: Failed to send the analysis' results due to the following error: {e}")
         
-    async def _analyse_call_for_vishing(self, call_id: str, prompt: str, object):
-        content = str(self._ongoing_calls[call_id].conversation_to_str())
+    async def _analyse_call_for_vishing(self, call_connection_id: str, prompt: str, object):
+        content = str(self._ongoing_calls[call_connection_id].conversation_to_str())
         response = await self._ai_client.responses.parse(
             model=self.DETECTOR_MODEL,
             store=False,
@@ -152,11 +164,11 @@ class CallAnalyser:
             text_format=object,
         )
 
-        logger.info(f"{__name__}: {call_id}: {content}")
+        logger.info(f"{__name__}: {call_connection_id}: {content}")
         if (response.output_parsed is not None and response.output_parsed.answer is not None):
-            logger.info(f"{__name__}: {call_id}: verdict: {response.output_parsed.answer}")
+            logger.info(f"{__name__}: {call_connection_id}: verdict: {response.output_parsed.answer}")
         else:
-            logger.error(f"{__name__}: {call_id}: failed to assess this bit of conversation.")
+            logger.error(f"{__name__}: {call_connection_id}: failed to assess this bit of conversation.")
 
         if (isinstance(response.output_parsed, Classification | IntermediateClassification)):
             response.output_parsed.timestamp = time.time()
@@ -168,12 +180,12 @@ class CallAnalyser:
             self._servicebus_sender.send_messages(message=ServiceBusMessage(turn.to_json(), subject="TURN_ANALYSIS")) 
             logger.info(f"{__name__}: #{turn.group_id}: {turn.id}: turn analysed.")
 
-    async def notify_end_of_analysis(self, call_id: str):
-        if (call_id not in self._ongoing_calls.keys()):
+    async def notify_end_of_analysis(self, call_connection_id: str):
+        if (call_connection_id not in self._ongoing_calls.keys()):
             return
         
         try:
-            call = self._ongoing_calls[call_id]
+            call = self._ongoing_calls[call_connection_id]
 
             async with self._lock:
                 self._servicebus_sender.send_messages(
@@ -181,7 +193,7 @@ class CallAnalyser:
                 ) 
                 logger.info(f"{__name__}: {call.group_id}: end of analysis.")
         except Exception as e:
-            logger.error(f"{__name__}: #{call_id}: Couldn't notify client of the end of the analysis due to the following error:")
-            logger.error(f"{__name__}: #{call_id}: {e.with_traceback}")
+            logger.error(f"{__name__}: #{call_connection_id}: Couldn't notify client of the end of the analysis due to the following error:")
+            logger.error(f"{__name__}: #{call_connection_id}: {e.with_traceback}")
         finally:
-            del self._ongoing_calls[call_id]
+            del self._ongoing_calls[call_connection_id]

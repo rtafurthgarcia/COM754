@@ -28,10 +28,10 @@ namespace CallerCallee.Models
             PropertyNameCaseInsensitive = true
         };
 
-        private record TurnOfConversationDto
+        public record TurnOfConversationDto
         {
             [JsonPropertyName("id")]
-            public string Id { get; init; }
+            public int Id { get; init; }
 
             [JsonPropertyName("group_id")]
             public string GroupId { get; init; }
@@ -58,23 +58,12 @@ namespace CallerCallee.Models
             public string GroupId { get; init; }
         }
 
-        public static async Task<Classifications> FromJsonAsync(string json)
+        public static async Task<TurnOfConversationDto> FromJsonAsync(string json)
         {
-            var dto = await JsonSerializer.DeserializeAsync<TurnOfConversationDto>(
+            return await JsonSerializer.DeserializeAsync<TurnOfConversationDto>(
                 new MemoryStream(Encoding.UTF8.GetBytes(json)),
                 options
             ) ?? throw new JsonException("Failed to deserialize TurnOfConversation");
-
-            return (new Classifications
-            {
-                Id = dto.Id,
-                GroupId = Guid.Parse(dto.GroupId),
-                TranscribedText = dto.Text,
-                StartTimestamp = (float)dto.StartTimestamp,
-                Speaker = Enum.Parse<Speaker>(dto.Speaker, ignoreCase: true),
-                NaiveClassification = ParseClassification(dto.NaiveClassification, (float)dto.StartTimestamp),
-                EnhancedClassification = ParseClassification(dto.EnhancedClassification, (float)dto.StartTimestamp)
-            });
         }
 
         public static async Task<Guid> FromJsonGuidOnlyAsync(string json)
@@ -85,6 +74,20 @@ namespace CallerCallee.Models
             ) ?? throw new JsonException("Failed to deserialize EndOfAnalysisDto");
 
             return Guid.Parse(dto.GroupId);
+        }
+
+        public static Classifications FromDto(TurnOfConversationDto dto, Speaker realSpeaker)
+        {
+            return (new Classifications
+            {
+                Id = dto.Id.ToString(),
+                GroupId = Guid.Parse(dto.GroupId),
+                TranscribedText = dto.Text,
+                StartTimestamp = (float)dto.StartTimestamp,
+                Speaker = realSpeaker,
+                NaiveClassification = ParseClassification(dto.NaiveClassification, (float)dto.StartTimestamp),
+                EnhancedClassification = ParseClassification(dto.EnhancedClassification, (float)dto.StartTimestamp)
+            });
         }
 
         private static ClassificationResult ParseClassification(JsonElement? element, float startTimestamp)

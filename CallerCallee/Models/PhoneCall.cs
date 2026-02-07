@@ -127,7 +127,6 @@ namespace CallerCallee.Models
                 await calleeGroupOptionsTask
             );
             callee.Call.StateChanged += OnCallStateChangedAsync;
-            //Debug.WriteLine($"{Entry.Name}: Callee is joining group call {groupCallLocator.GroupId}");
         }
 
         private void OnCallRemoteParticipantsUpdated(object sender, ParticipantsUpdatedEventArgs e)

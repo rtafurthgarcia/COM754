@@ -10,14 +10,10 @@ using System.Linq;
 
 namespace CallerCallee.ViewModels
 {
-    public partial class DatasetViewModel : ObservableObject
+    public partial class DatasetViewModel(DatasetEntry datasetEntry) : ObservableObject
     {
         [ObservableProperty]
-        public partial DatasetEntry Entry { get; set; }
-        public DatasetViewModel(DatasetEntry datasetEntry)
-        {
-            Entry = datasetEntry;
-        }
+        public partial DatasetEntry Entry { get; set; } = datasetEntry;
 
         public string Id => "Entry #" + Entry.Id;
 

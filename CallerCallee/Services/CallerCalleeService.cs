@@ -21,9 +21,11 @@ namespace CallerCallee.Services
         private readonly AudioService audioService = Ioc.Default.GetRequiredService<AudioService>();
         private readonly DatasetService datasetService = Ioc.Default.GetRequiredService<DatasetService>();
         private readonly ConcurrentDictionary<DatasetEntry, int> retries = [];
-
+        public readonly ConcurrentDictionary<string, Speaker> usedIds = [];
+        
         public async Task StartSimulation(int maxAmountOfParallelCalls)
         {
+            retries.Clear();
             var csEndpoint = authenticationService.KeyVault.GetSecret(AuthenticationService.CS_ENDPOINT_NAME).Value;
             communicationIdentity = new CommunicationIdentityClient(new Uri(csEndpoint.Value), authenticationService.Credential);
             ArgumentNullException.ThrowIfNull(authenticationService.Credential);
@@ -75,6 +77,8 @@ namespace CallerCallee.Services
                     phoneCall.OnEndOfCall += CallEnded;
                     callEntry.State = State.Ongoing;
                     await phoneCall.DialUp();
+                    usedIds.TryAdd(caller.User.Id, Speaker.Caller); // to link who's been identified during deserialisation
+                    usedIds.TryAdd(callee.User.Id, Speaker.Callee);
                     //.TryAdd(phoneCall.Guid, callEntry);
                 }
                 catch (Exception e)

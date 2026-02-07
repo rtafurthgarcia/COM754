@@ -18,7 +18,7 @@ namespace CallerCallee.Services
         }
 
         private readonly AuthenticationService authenticationService = Ioc.Default.GetRequiredService<AuthenticationService>();
-        private readonly DatasetService datasetService = Ioc.Default.GetRequiredService<DatasetService>();
+        private readonly CallerCalleeService callerCalleeService = Ioc.Default.GetRequiredService<CallerCalleeService>();
         private ServiceBusClient client;
         private ServiceBusProcessor processor;
 
@@ -60,9 +60,12 @@ namespace CallerCallee.Services
 
             if (subject.Equals(MessageSubject.TURN_ANALYSIS))
             {
-                Classifications detectionResult = await Classifications.FromJsonAsync(arg.Message.Body.ToString());
-                WeakReferenceMessenger.Default.Send(new DetectionResultReceived(detectionResult));
-                
+                var dto = await Classifications.FromJsonAsync(arg.Message.Body.ToString());
+                if (callerCalleeService.usedIds.TryGetValue(dto.Speaker, out Speaker realSpeaker))
+                {
+                    var detectionResults = Classifications.FromDto(dto, realSpeaker);
+                    WeakReferenceMessenger.Default.Send(new DetectionResultReceived(detectionResults));
+                }
             } 
             else
             {

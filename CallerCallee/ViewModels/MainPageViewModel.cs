@@ -265,7 +265,8 @@ namespace CallerCallee.ViewModels
                     phoneCall.CurrentTurnId = "";
                     phoneCall.CallerSymbol = Symbol.Mute;
                     phoneCall.CalleeSymbol = Symbol.Mute;
-                    DataSource2.Where(d => d.Entry.Id.Equals(phoneCall.Id)).FirstOrDefault().Entry = phoneCall.Call.Entry;
+                    DataSource2.Remove(DataSource2.Where(d => d.Entry.Id.Equals(phoneCall.Id)).FirstOrDefault());
+                    DataSource2.Add(new DatasetViewModel(phoneCall.Call.Entry));
 
                     if (phoneCall.Call.IsActive())
                     {
@@ -334,7 +335,8 @@ namespace CallerCallee.ViewModels
                     phoneCall.StopTimer();
                     DataSource.Remove(phoneCall);
                     phoneCall.State = State.Completed;
-                    DataSource2.Where(d => phoneCall.Call.Entry.Id.Equals(d.Entry.Id)).FirstOrDefault().Entry = phoneCall.Call.Entry;
+                    DataSource2.Remove(DataSource2.Where(d => d.Entry.Id.Equals(phoneCall.Id)).FirstOrDefault());
+                    DataSource2.Add(new DatasetViewModel(phoneCall.Call.Entry));
                 }
 
                 if (datasetService.TodoDataset.IsEmpty)

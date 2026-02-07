@@ -61,8 +61,7 @@ def create_app(container: Container) -> FastAPI:
         await manager.connect(websocket)
         logger.info(f"{__name__}: connection received from {websocket.client or "unknown host?"}")
         call_connection_id = None
-        exception = None
-        running_analyses = set()
+        #running_analyses = set()
         try:
             #async with asyncio.TaskGroup() as tg:
             while True:
@@ -87,14 +86,17 @@ def create_app(container: Container) -> FastAPI:
             logger.info(f"{__name__}: disconnected")
         except asyncio.CancelledError as e:
             logger.error(f"{__name__}: connection lost due to an unexpected thread cancellation: {e}")
-            #exception = e
         except Exception as e:
             logger.error(f"{__name__}: connection lost due to an unexpected error: {e.with_traceback}")
-            #exception = e
         finally:
             manager.remove(websocket)
+            # if the call is still ongoing, means disconnection is temporary, and that another one will start
             if (call_connection_id is not None):
-                await call_analyser.notify_end_of_analysis(call_connection_id)
+                if (not call_analyser.is_still_connected(call_connection_id)):
+                    await call_analyser.notify_end_of_analysis(call_connection_id)
+                else:
+                    logger.info(f"{__name__}: {call_connection_id}: transcription will restart again soon...")
+
 
     return app
 
