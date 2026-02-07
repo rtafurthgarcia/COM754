@@ -10,6 +10,7 @@ using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using static CallerCallee.Models.SystemwideMessage;
+using static CallerCallee.Services.AudioService;
 
 namespace CallerCallee.Services
 {
@@ -42,6 +43,11 @@ namespace CallerCallee.Services
 
             while (!datasetService.TodoDataset.IsEmpty) 
             {
+                caller ??= await communicationIdentity.CreateUserAndTokenAsync([CommunicationTokenScope.VoIP]);
+                callee ??= await communicationIdentity.CreateUserAndTokenAsync([CommunicationTokenScope.VoIP]);
+
+                await semaphore.WaitAsync();
+
                 if (callEntry is null)
                 {
                     if (!datasetService.TodoDataset.TryDequeue(out callEntry))
@@ -60,12 +66,8 @@ namespace CallerCallee.Services
                         continue;
                 }
 
-                caller ??= await communicationIdentity.CreateUserAndTokenAsync([CommunicationTokenScope.VoIP]);
-                callee ??= await communicationIdentity.CreateUserAndTokenAsync([CommunicationTokenScope.VoIP]);
-
                 try
                 {
-                    await semaphore.WaitAsync();
 
                     phoneCall = new PhoneCall(
                         caller,
@@ -81,22 +83,24 @@ namespace CallerCallee.Services
                     usedIds.TryAdd(callee.User.Id, Speaker.Callee);
                     //.TryAdd(phoneCall.Guid, callEntry);
                 }
+                catch (VirtualMicrophoneNotFound)
+                {
+                    throw;
+                }
                 catch (Exception e)
                 {
                     Debug.WriteLine($"{callEntry.Id}: Error during call init: {e}");
                     semaphore.Release();
                     audioService.TryFreeDevice((int)calleeDevice);
                     audioService.TryFreeDevice((int)callerDevice);
-
+                    e.Source = callEntry.Id;
                     if (retries.TryGetValue(callEntry, out var retryCount) && retryCount >= 3)
                     {
                         Debug.WriteLine($"{callEntry.Id}: Reached max retry count. Skipping call.");
                         phoneCall.OnEndOfCall -= CallEnded;
-                        callEntry.Exception = e;
-                        callEntry.State = State.Failed;
                         WeakReferenceMessenger.Default.Send(
                             new CallInterrupted(
-                                phoneCall
+                                e
                             )
                         );
                     }
@@ -130,7 +134,7 @@ namespace CallerCallee.Services
             {
                 phoneCall.OnEndOfCall -= CallEnded;
                 semaphore.Release();
-                Debug.WriteLine($"{phoneCall.Entry.Id}: Call ended after {(int)(DateTime.Now - phoneCall.Caller.Call.StartTime).TotalSeconds}s.");
+                Debug.WriteLine($"{phoneCall.DatasetEntry.Id}: Call ended after {(int)(DateTime.Now - phoneCall.Caller.Call.StartTime).TotalSeconds}s.");
 
                 audioService.TryFreeDevice(phoneCall.Caller.AudioDeviceNumber);
                 audioService.TryFreeDevice(phoneCall.Callee.AudioDeviceNumber);

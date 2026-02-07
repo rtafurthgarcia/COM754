@@ -54,8 +54,6 @@ namespace CallerCallee.ViewModels
         [NotifyCanExecuteChangedFor(nameof(RunSimulationCommand))]
         public partial DefaultAzureCredential Credential { get; set; }
 
-        [ObservableProperty]
-        public partial int MaxParallelSimulations { get; set; } = 1;
 
         private readonly DatasetService datasetService = Ioc.Default.GetRequiredService<DatasetService>();
         private readonly CallerCalleeService callerCalleeService = Ioc.Default.GetRequiredService<CallerCalleeService>();
@@ -64,6 +62,9 @@ namespace CallerCallee.ViewModels
         private readonly DetectionService detectionService = Ioc.Default.GetRequiredService<DetectionService>();
 
         private readonly DispatcherQueue dispatcherQueue = DispatcherQueue.GetForCurrentThread();
+        
+        [ObservableProperty]
+        public partial int MaxParallelSimulations { get; set; } = AudioService.CountAvailableDevices() / 2;
 
         private State SelectedState = State.Todo;
 
@@ -226,7 +227,8 @@ namespace CallerCallee.ViewModels
             {
                 var phoneCall = new PhoneCallViewModel(message.Value)
                 {
-                    CurrentTurnId = message.Value.Entry.Children.Peek().Id,
+                    CurrentTurnId = message.Value.DatasetEntry.Children.Peek().Id,
+                    State = State.Ongoing,
                     CallerSymbol = Symbol.Volume,
                     CalleeSymbol = Symbol.Mute
                 };
@@ -238,11 +240,11 @@ namespace CallerCallee.ViewModels
         {
             dispatcherQueue.TryEnqueue(() =>
             {
-                var phoneCall = DataSource.Where(vm => vm.Id == message.Value.Entry.Id)
+                var phoneCall = DataSource.Where(vm => vm.Id == message.Value)
                     .FirstOrDefault();
                 if (phoneCall != null)
                 {
-                    phoneCall.State = message.Value.Entry.State;
+                    phoneCall.State = State.Analysing;
                     phoneCall.CurrentTurnId = "";
                     phoneCall.CallerSymbol = Symbol.Mute;
                     phoneCall.CalleeSymbol = Symbol.Mute;
@@ -252,25 +254,25 @@ namespace CallerCallee.ViewModels
 
         public void Receive(CallInterrupted message)
         {
-            dispatcherQueue.TryEnqueue((DispatcherQueueHandler)(async () =>
+            dispatcherQueue.TryEnqueue((async () =>
             {
-                var phoneCall = DataSource.Where(vm => vm.Id.Equals(message.Value.Entry.Id))
+                var phoneCall = DataSource.Where(vm => vm.Id.Equals(message.Value.Source))
                     .FirstOrDefault();
 
                 if (phoneCall != null)
                 {
                     DataSource.Remove(phoneCall);
                     phoneCall.StopTimer();
+                    phoneCall.LastException = message.Value;
                     phoneCall.State = State.Failed;
                     phoneCall.CurrentTurnId = "";
                     phoneCall.CallerSymbol = Symbol.Mute;
                     phoneCall.CalleeSymbol = Symbol.Mute;
-                    DataSource2.Remove(DataSource2.Where(d => d.Entry.Id.Equals(phoneCall.Id)).FirstOrDefault());
-                    DataSource2.Add(new DatasetViewModel(phoneCall.Call.Entry));
+                    OnPropertyChanged(nameof(DataSource2));
 
-                    if (phoneCall.Call.IsActive())
+                    if (phoneCall.IsActive)
                     {
-                        await phoneCall.Call.TerminateAsync();
+                        await phoneCall.TerminateAsync();
                     }
                 }
 
@@ -293,31 +295,37 @@ namespace CallerCallee.ViewModels
         {
             dispatcherQueue.TryEnqueue(() =>
             {
-                var phoneCall = DataSource.Where(vm => vm.Id == message.Value.Entry.Id)
+                var (Id, TurnId) = message.Value;
+                var phoneCall = DataSource.Where(vm => vm.Id == Id)
                     .FirstOrDefault();
                 if (phoneCall != null)
                 {
-                    phoneCall.State = message.Value.Entry.State;
-                    if (message.Value.CurrentSpeaker.Equals(Speaker.Caller))
+                    if (TurnId != null)
                     {
-                        phoneCall.CallerSymbol = Symbol.Volume;
-                        phoneCall.CalleeSymbol = Symbol.Mute;
+                        phoneCall.CurrentTurnId = TurnId;
                     }
                     else
                     {
-                        phoneCall.CallerSymbol = Symbol.Mute;
-                        phoneCall.CalleeSymbol = Symbol.Volume;
+                        phoneCall.CurrentSpeaker = null;
+                        phoneCall.CurrentTurnId = "";
                     }
 
-                    if (message.Value.CurrentTurn != null)
+                    switch (phoneCall.CurrentSpeaker)
                     {
-                        phoneCall.CurrentTurnId = message.Value.CurrentTurn.Id;
-                    }
-                    else
-                    {
-                        phoneCall.CurrentTurnId = "";
-                        phoneCall.CallerSymbol = Symbol.Mute;
-                        phoneCall.CalleeSymbol = Symbol.Mute;
+                        case Speaker.Caller:
+                            phoneCall.CallerSymbol = Symbol.Volume;
+                            phoneCall.CalleeSymbol = Symbol.Mute;
+                            phoneCall.CurrentSpeaker = Speaker.Callee;
+                            break;
+                        case Speaker.Callee:
+                            phoneCall.CallerSymbol = Symbol.Mute;
+                            phoneCall.CalleeSymbol = Symbol.Volume;
+                            phoneCall.CurrentSpeaker = Speaker.Caller;
+                            break;
+                        default:
+                            phoneCall.CallerSymbol = Symbol.Mute;
+                            phoneCall.CalleeSymbol = Symbol.Mute;
+                            break;
                     }
                 }
             });
@@ -335,8 +343,8 @@ namespace CallerCallee.ViewModels
                     phoneCall.StopTimer();
                     DataSource.Remove(phoneCall);
                     phoneCall.State = State.Completed;
-                    DataSource2.Remove(DataSource2.Where(d => d.Entry.Id.Equals(phoneCall.Id)).FirstOrDefault());
-                    DataSource2.Add(new DatasetViewModel(phoneCall.Call.Entry));
+                    phoneCall.CurrentTurnId = "";
+                    OnPropertyChanged(nameof(DataSource2));
                 }
 
                 if (datasetService.TodoDataset.IsEmpty)
@@ -365,8 +373,7 @@ namespace CallerCallee.ViewModels
                 if (phoneCall != null)
                 {
                     phoneCall.LastResultTimestamp = new DateTimeOffset(DateTime.UtcNow).ToUnixTimeSeconds();
-                    phoneCall.Naive = message.Value.NaiveClassification.Flag;
-                    phoneCall.Enhanced = message.Value.EnhancedClassification.Flag;
+                    phoneCall.AddDetectionResult(message.Value);
                 }
             });
         }

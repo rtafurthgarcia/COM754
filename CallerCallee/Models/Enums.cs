@@ -9,7 +9,8 @@ namespace CallerCallee.Models
     public enum Speaker
     {
         Caller,
-        Callee
+        Callee,
+        System
     }
 
     public enum EntryType
@@ -31,6 +32,6 @@ namespace CallerCallee.Models
         Completed,
         Failed,
         Ongoing,
-        WaitingForClassification,
+        Analysing,
     }
 }

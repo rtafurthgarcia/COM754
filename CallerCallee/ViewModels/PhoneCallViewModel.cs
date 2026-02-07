@@ -8,16 +8,15 @@ using Microsoft.UI.Xaml.Media;
 using System;
 using System.Diagnostics;
 using System.Linq;
+using System.Threading.Tasks;
 using static CallerCallee.Models.SystemwideMessage;
 
 namespace CallerCallee.ViewModels
 {
-    public partial class PhoneCallViewModel : ObservableObject
+    public partial class PhoneCallViewModel : DatasetViewModel
     {
         private readonly PhoneCall phoneCall;
-        public PhoneCall Call => phoneCall;
-
-        public PhoneCallViewModel(PhoneCall phoneCall)
+        public PhoneCallViewModel(PhoneCall phoneCall): base(phoneCall.DatasetEntry)
         {
             this.phoneCall = phoneCall;
             RealDuration = "00:00";
@@ -31,11 +30,11 @@ namespace CallerCallee.ViewModels
             _timer.Start();
         }
 
-        public string Id => phoneCall.Entry.Id;
-
         public Guid Guid => phoneCall.Guid;
 
         [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(LastException))]
+        [NotifyPropertyChangedFor(nameof(State))]
         public partial string CurrentTurnId { get; set; }
 
         [ObservableProperty]
@@ -45,49 +44,52 @@ namespace CallerCallee.ViewModels
         public partial Symbol CalleeSymbol { get; set; }
 
         [ObservableProperty]
-        public partial State State { get; set; }
-
-        [ObservableProperty]
-        public partial Flag Is { get; set; } 
-
-        [ObservableProperty]
-        public partial Flag Human { get; set; }
-
-        [ObservableProperty]
-        public partial Flag Naive { get; set; } = Flag.Unknown;
-
-        [ObservableProperty]
-        public partial Flag Enhanced { get; set; } = Flag.Unknown;
-
-        [ObservableProperty]
-        public partial string RealDuration { get; set; }
-
-        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(Naive))]
+        [NotifyPropertyChangedFor(nameof(Enhanced))]
         public partial float LastResultTimestamp { get; set; }
 
         private readonly DispatcherTimer _timer;
         private readonly Stopwatch _stopwatch = Stopwatch.StartNew();
 
+        public Speaker? CurrentSpeaker = Speaker.Caller;
+
         private void OnTick(object sender, object e)
         {
             // DispatcherTimer runs on UI thread, so this is safe
             RealDuration = _stopwatch.Elapsed.ToString(@"mm\:ss");
-            Call.Entry.RealDuration = RealDuration;
 
-            if (_stopwatch.Elapsed.TotalSeconds - LastResultTimestamp > 120)
+            if (_stopwatch.Elapsed.TotalSeconds - LastResultTimestamp > 90)
             {
-                // If the last result is older than 2 minutes, is likely failed
-                Naive = Flag.Unknown;
-                Enhanced = Flag.Unknown;
-                State = State.Failed;
+                // If the last result is older than 1.5 minute, is likely failed
+                // otherwise would have received the confirmation that its over by now.
+                AddDetectionResult(new Classifications() 
+                {
+                    Id = "INTERRUPTION",
+                    GroupId = null,
+                    Speaker = Speaker.System,
+                    EnhancedClassification = new ClassificationResult() 
+                    { 
+                        Duration = (float)_stopwatch.Elapsed.TotalSeconds - LastResultTimestamp,
+                        Flag = Flag.Unknown
+                    },
+                    NaiveClassification = new ClassificationResult()
+                    {
+                        Duration = (float)_stopwatch.Elapsed.TotalSeconds - LastResultTimestamp,
+                        Flag = Flag.Unknown
+                    }
+                });
+                
                 StopTimer();
                 WeakReferenceMessenger.Default.Send(
                     new CallInterrupted(
-                        phoneCall
+                        new TimeoutException("Has received no classification for 90s.") { Source = Id.ToString() }
                     )
                 );
             }
         }
+
+        public bool IsActive => phoneCall.IsActive();
+        public Task TerminateAsync() => phoneCall.TerminateAsync();
 
         public void StopTimer()
         {
@@ -96,7 +98,19 @@ namespace CallerCallee.ViewModels
             _stopwatch.Stop();
         }
 
-        public Brush GetRightColor(Flag flag)
+        public static Brush GetRightColorState(State state)
+        {
+            if (state.Equals(State.Failed))
+            {
+                return new SolidColorBrush(Colors.Crimson);
+            }
+            else
+            {
+                return new SolidColorBrush(Colors.Gray);
+            }
+        }
+
+        public static Brush GetRightColor(Flag flag)
         {
             if (flag is Flag.Safe)
             {
@@ -109,17 +123,6 @@ namespace CallerCallee.ViewModels
             else
             {
                 return new SolidColorBrush(Colors.Gray);
-            }
-        }
-
-        public Brush GetRightColorState(State state)
-        {
-            switch (state)
-            {
-                case State.Failed:
-                    return new SolidColorBrush(Colors.Crimson);
-                default:
-                    return new SolidColorBrush(Colors.Gray);
             }
         }
     }

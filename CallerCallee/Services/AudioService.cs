@@ -12,6 +12,21 @@ namespace CallerCallee.Services
 {
     public sealed partial class AudioService
     {
+        [Serializable]
+        public class VirtualMicrophoneNotFound : Exception
+        {
+            public VirtualMicrophoneNotFound()
+            { }
+
+            public VirtualMicrophoneNotFound(string message)
+                : base(message)
+            { }
+
+            public VirtualMicrophoneNotFound(string message, Exception innerException)
+                : base(message, innerException)
+            { }
+        }
+
         private struct InternalPlayer(ref WaveOutEvent WaveOutEvent, ref AudioFileReader AudioFileReader)
         {
             public WaveOutEvent waveOutEvent = WaveOutEvent;
@@ -20,9 +35,9 @@ namespace CallerCallee.Services
 
         private readonly ConcurrentDictionary<int, InternalPlayer> playingAudios = new();
         private readonly ConcurrentStack<int> availableDevices = new();
+        private static readonly Regex regex = CableRegex();
 
         public AudioService() {
-            Regex regex = CableRegex();
 
             Enumerable
                 .Range(0, WaveOut.DeviceCount)
@@ -32,8 +47,23 @@ namespace CallerCallee.Services
 
             if (availableDevices.IsEmpty)
             {
-                throw new Exception("VB-Cable virtual microphones not detected. Make sure the drivers are installed and check the project's documentation.");
+                throw new VirtualMicrophoneNotFound("VB-Cable virtual microphones not detected. Make sure the drivers are installed and check the project's documentation.");
             }
+        }
+
+        public static int CountAvailableDevices()
+        {
+            var count = Enumerable
+                .Range(0, WaveOut.DeviceCount)
+                .Where(i => regex.IsMatch(WaveOut.GetCapabilities(i).ProductName))
+                .Count();
+
+            if (count == 0)
+            {
+                throw new VirtualMicrophoneNotFound("VB-Cable virtual microphones not detected. Make sure the drivers are installed and check the project's documentation.");
+            }
+
+            return count;
         }
 
         public static AudioDeviceDetails FindEquivalent(int deviceNumber, List<AudioDeviceDetails> possibleDevices)
@@ -48,7 +78,15 @@ namespace CallerCallee.Services
         {
             var succeeded = availableDevices.TryPop(out int newDeviceNumber);
 
-            deviceNunber = newDeviceNumber;
+            if (succeeded) 
+            { 
+                deviceNunber = newDeviceNumber;
+            }
+            else
+            {
+                deviceNunber = null;
+            }
+
 
             return succeeded;
         }

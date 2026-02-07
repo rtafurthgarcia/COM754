@@ -15,7 +15,7 @@ namespace CallerCallee.Models
 
     public record Classifications
     {
-        public Guid GroupId { get; init; }
+        public Guid? GroupId { get; init; }
         public string Id { get; init; }
         public float StartTimestamp { get; init; }
         public string TranscribedText { get; init; }

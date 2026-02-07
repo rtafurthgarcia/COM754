@@ -38,7 +38,8 @@ namespace CallerCallee.Services
 
         private async Task OnProcessErrorAsync(ProcessErrorEventArgs arg)
         {
-            Debug.WriteLine($"Exception encountered whilst procesing incoming messages: {arg.Exception.Message}");   
+            Debug.WriteLine($"Exception encountered whilst procesing incoming messages: {arg.Exception.Message}");
+            await Task.CompletedTask;
         }
 
         public async Task StopProcessingAsync()

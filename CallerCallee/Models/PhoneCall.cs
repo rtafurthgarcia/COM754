@@ -35,13 +35,13 @@ namespace CallerCallee.Models
             get { return callee; }
         }
 
-        private readonly DatasetEntry entry;
-        public DatasetEntry Entry
+        private readonly DatasetEntry datasetEntry;
+        public DatasetEntry DatasetEntry
         {
-            get { return entry; }
+            get { return datasetEntry; }
         }
 
-        public DatasetEntry CurrentTurn => entry.Children.Count > 0 ? entry.Children.Peek() : null;
+        public DatasetEntry CurrentTurn => datasetEntry.Children.Count > 0 ? datasetEntry.Children.Peek() : null;
 
         private readonly GroupCallLocator groupCallLocator = new(Guid.NewGuid());
         public Guid Guid
@@ -78,7 +78,7 @@ namespace CallerCallee.Models
             caller = new CallDetails(callerIdAndToken);
             callee = new CallDetails(calleeIdAndToken);
 
-            this.entry = Entry;
+            datasetEntry = Entry;
             caller.AudioDeviceNumber = callerDeviceNumber;
             callee.AudioDeviceNumber = calleeDeviceNumber;
         }
@@ -97,7 +97,7 @@ namespace CallerCallee.Models
                 callerTokenCredential,
                 new CallAgentOptions()
                 {
-                    DisplayName = $"{entry.Id}/COM754-Caller",
+                    DisplayName = $"{datasetEntry.Id}/COM754-Caller",
                 }
             );
 
@@ -109,7 +109,7 @@ namespace CallerCallee.Models
                 calleeTokenCredential,
                 new CallAgentOptions()
                 {
-                    DisplayName = $"{entry.Id}/COM754-Callee",
+                    DisplayName = $"{datasetEntry.Id}/COM754-Callee",
                 }
             );
 
@@ -119,7 +119,7 @@ namespace CallerCallee.Models
             );
             caller.Call.StateChanged += OnCallStateChangedAsync;
             caller.Call.RemoteParticipantsUpdated += OnCallRemoteParticipantsUpdated;
-            Debug.WriteLine($"{entry.Id}: Caller is creating the group call {groupCallLocator.GroupId}");
+            Debug.WriteLine($"{datasetEntry.Id}: Caller is creating the group call {groupCallLocator.GroupId}");
             await Task.Delay(5000); // give it enough slack so that the first client gets registered. 
 
             callee.Call = await callee.CallAgent.JoinAsync(
@@ -133,7 +133,7 @@ namespace CallerCallee.Models
         {
             e.AddedParticipants
                 .ToList()
-                .ForEach(participant => Debug.WriteLine($"{entry.Id}: {participant.DisplayName} has joined group call {groupCallLocator.GroupId}"));
+                .ForEach(participant => Debug.WriteLine($"{datasetEntry.Id}: {participant.DisplayName} has joined group call {groupCallLocator.GroupId}"));
         }
 
         protected virtual void OnCallEnded(EventArgs args)
@@ -146,30 +146,27 @@ namespace CallerCallee.Models
         {
             try
             {
-                if (entry.Children.Count > 0)
+                if (datasetEntry.Children.Count > 0)
                 {
                     NextTurn();
                 }
                 else
                 {
-                    Debug.WriteLine($"{entry.Id}: Conversation over.");
-                    entry.Exception = null;
-                    entry.State = State.WaitingForClassification;
-                    WeakReferenceMessenger.Default.Send(new CallCompleted(this));
+                    Debug.WriteLine($"{datasetEntry.Id}: Conversation over.");
+                    datasetEntry.Exception = null;
+                    WeakReferenceMessenger.Default.Send(new CallCompleted(int.Parse(datasetEntry.Id)));
                     await caller.Call.HangUpAsync(new HangUpOptions() { ForEveryone = true });
                 }
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"{entry.Id}: Exception in OnPlaybackStopped: {ex.Message}");
-                entry.State = State.Failed;
-                entry.Exception = ex;
+                Debug.WriteLine($"{datasetEntry.Id}: Exception in OnPlaybackStopped: {ex.Message}");
 
                 // only skip once, if it fails again,
                 // then we consider the call failed and move on with the rest of the dataset.
-                if (entry.Children.Count > 0)
+                if (datasetEntry.Children.Count > 0)
                 {
-                    Debug.WriteLine($"{entry.Id}: Skipping to the next one...");
+                    Debug.WriteLine($"{datasetEntry.Id}: Skipping to the next one...");
 
                     try
                     {
@@ -177,9 +174,9 @@ namespace CallerCallee.Models
                     }
                     catch (Exception innerEx)
                     {
-                        Debug.WriteLine($"{entry.Id}: Exception in NextTurn after playback failure: {innerEx.Message}");
-                        entry.State = State.Failed;
-                        entry.Exception = innerEx;
+                        innerEx.Source = datasetEntry.Id;
+                        Debug.WriteLine($"{datasetEntry.Id}: Exception in NextTurn after playback failure: {innerEx.Message}");
+                        datasetEntry.Exception = innerEx;
                         await callee.Call.HangUpAsync(new HangUpOptions() { ForEveryone = true });
                     }
                 }
@@ -190,14 +187,14 @@ namespace CallerCallee.Models
         {
             try
             {
-                entry.Children.Clear(); // so that it doesnt trigger the next turn after the current one has finished, and instead ends the call immediately.
+                datasetEntry.Children.Clear(); // so that it doesnt trigger the next turn after the current one has finished, and instead ends the call immediately.
                 await caller.Call.HangUpAsync(new HangUpOptions() { ForEveryone = true });
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"{entry.Id}: Exception in ForceEndCallAsync: {ex.Message}");
-                entry.State = State.Failed;
-                entry.Exception = ex;
+                Debug.WriteLine($"{datasetEntry.Id}: Exception in ForceEndCallAsync: {ex.Message}");
+                ex.Source = datasetEntry.Id;
+                datasetEntry.Exception = ex;
             }
         }
 
@@ -228,30 +225,29 @@ namespace CallerCallee.Models
                     }
                     case CallState.Disconnected:
                     {
-                        Debug.WriteLine($"{entry.Id}: Call has been disconnected.");
+                        Debug.WriteLine($"{datasetEntry.Id}: Call has been disconnected.");
                         call.StateChanged -= OnCallStateChangedAsync;
                         if (call == callee.Call)
                         {
                             callee.CallClient.Dispose();
                             callee.CallAgent.Dispose(); //otherwise doesnt liberate the credentials on the Azure side
+                            
                         }
                         else
                         {
                             caller.CallClient.Dispose();
                             caller.CallAgent.Dispose();
-                            OnCallEnded(new EventArgs());
                         }
+                        OnCallEnded(new EventArgs());
                         call.Dispose();
                         
                         // Implies the call was interrupted
-                        if (entry.Children.Count > 0)
+                        if (datasetEntry.Children.Count > 0)
                         {
-                            entry.State = State.Failed;
-                            entry.Exception = new Exception("Call interrupted unexpectedly.");
-                            Debug.WriteLine($"{entry.Id}: {entry.Exception.Message}");
+                            Debug.WriteLine($"{datasetEntry.Id}: {datasetEntry.Exception.Message}");
                             WeakReferenceMessenger.Default.Send(
                                 new CallInterrupted(
-                                    this
+                                    datasetEntry.Exception ?? new Exception("Call interrupted unexpectedly.") { Source = datasetEntry.Id}
                                 )
                             );
                         }
@@ -277,21 +273,21 @@ namespace CallerCallee.Models
 
         private void NextTurn()
         {                        
-            var turn = entry.Children.Dequeue();
+            var turn = datasetEntry.Children.Dequeue();
             currentSpeaker = currentSpeaker.Equals(Speaker.Caller) ? Speaker.Callee : Speaker.Caller;
             WeakReferenceMessenger.Default.Send(
-                new NextTurnBeingPlayed(this)
+                new NextTurnBeingPlayed((int.Parse(datasetEntry.Id), CurrentTurn?.Id))
             );
 
             if (currentSpeaker.Equals(Speaker.Caller))
             {
                 var duration = audioService.PlayAudioFile(caller.AudioDeviceNumber, turn.FilePath, OnPlaybackStopped);
-                Debug.WriteLine($"{entry.Id}: Caller speaking: {turn.Id}, for {(int)duration.TotalSeconds}s");
+                Debug.WriteLine($"{datasetEntry.Id}: Caller speaking: {turn.Id}, for {(int)duration.TotalSeconds}s");
             }
             else
             {
                 var duration = audioService.PlayAudioFile(callee.AudioDeviceNumber, turn.FilePath, OnPlaybackStopped);
-                Debug.WriteLine($"{entry.Id}: Callee speaking: {turn.Id}, for {(int)duration.TotalSeconds}s");
+                Debug.WriteLine($"{datasetEntry.Id}: Callee speaking: {turn.Id}, for {(int)duration.TotalSeconds}s");
             }
         }
     }

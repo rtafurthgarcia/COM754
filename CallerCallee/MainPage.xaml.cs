@@ -33,7 +33,6 @@ namespace CallerCallee
             }
 
             TableView.Columns.Where(c => c.Header.ToString().Equals(nameof(DatasetViewModel.State))).First().Visibility = Visibility.Collapsed;
-            TableView.Columns.Where(c => c.Header.ToString().Equals(nameof(DatasetViewModel.Entry))).First().Visibility = Visibility.Collapsed;
             TableView.Columns.Where(c => c.Header.ToString().Equals(nameof(DatasetViewModel.Id))).First().Width = new GridLength(100, GridUnitType.Star);
             switch (index)
             {

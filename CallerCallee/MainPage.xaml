@@ -51,24 +51,24 @@
                 </Button>
                 <StackPanel Grid.Row="0" Grid.Column="2" Orientation="Vertical">
                     <TextBlock Text="IS: "/>
-                    <TextBlock Text="{x:Bind Is}" Foreground="{x:Bind GetRightColor(Is), Mode=OneWay}"/>
+                    <TextBlock Text="{x:Bind Is}" Foreground="{x:Bind viewModels:PhoneCallViewModel.GetRightColor(Is), Mode=OneWay}"/>
                 </StackPanel>
                 <StackPanel Grid.Row="0" Grid.Column="3" Orientation="Vertical">
                     <TextBlock Text="HUMAN: "/>
-                    <TextBlock Text="{x:Bind Human}" Foreground="{x:Bind GetRightColor(Human), Mode=OneWay}"/>
+                    <TextBlock Text="{x:Bind Human}" Foreground="{x:Bind viewModels:PhoneCallViewModel.GetRightColor(Human), Mode=OneWay}"/>
                 </StackPanel>
                 <StackPanel Grid.Row="1" Grid.Column="2" Orientation="Vertical">
                     <TextBlock Text="NAIVE: "/>
-                    <TextBlock Text="{x:Bind Naive, Mode=OneWay}" Foreground="{x:Bind GetRightColor(Naive), Mode=OneWay}"/>
+                    <TextBlock Text="{x:Bind Naive, Mode=OneWay}" Foreground="{x:Bind viewModels:PhoneCallViewModel.GetRightColor(Naive), Mode=OneWay}"/>
                 </StackPanel>
                 <StackPanel Grid.Row="1" Grid.Column="3" Orientation="Vertical">
                     <TextBlock Text="ENHANCED: "/>
-                    <TextBlock Text="{x:Bind Enhanced, Mode=OneWay}" Foreground="{x:Bind GetRightColor(Enhanced), Mode=OneWay}"/>
+                    <TextBlock Text="{x:Bind Enhanced, Mode=OneWay}" Foreground="{x:Bind viewModels:PhoneCallViewModel.GetRightColor(Enhanced), Mode=OneWay}"/>
                 </StackPanel>
                 <StackPanel Grid.Row="2" Spacing="8" Grid.Column="2" Grid.ColumnSpan="2" VerticalAlignment="Bottom" 
                     Orientation="Horizontal">
                     <TextBlock Text="State: " Style="{StaticResource CaptionTextBlockStyle}"/>
-                    <TextBlock Text="{x:Bind State, Mode=OneWay}" Foreground="{x:Bind GetRightColorState(State), Mode=OneWay}" Style="{StaticResource CaptionTextBlockStyle}"/>
+                    <TextBlock Text="{x:Bind State, Mode=OneWay}" Foreground="{x:Bind  viewModels:PhoneCallViewModel.GetRightColorState(State), Mode=OneWay}" Style="{StaticResource CaptionTextBlockStyle}"/>
                 </StackPanel>
                 <TextBlock TextAlignment="Left" Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2" Style="{StaticResource BodyStrongTextBlockStyle}"
                     Text="{x:Bind x:String.Format('Turn #{0}', CurrentTurnId), Mode=OneWay}"/>
@@ -108,7 +108,7 @@
                             <TextBlock Margin="4, 4, 4, 0" Text="{x:Bind x:String.Format('Max parallel simulations: {0}', ViewModel.MaxParallelSimulations), Mode=OneWay}" FontWeight="SemiBold"/>
                             <Slider IsEnabled="{x:Bind ViewModel.RunSimulationCommand.IsRunning, Mode=OneWay, Converter={StaticResource BoolNegationConverter }}"
                                  AutomationProperties.Name="Slider with ticks"
-                                 TickFrequency="1" Minimum="1" Maximum="16" StepFrequency="1"
+                                 TickFrequency="1" Minimum="1" Maximum="2" StepFrequency="1"
                                  SmallChange="1" Value="{x:Bind ViewModel.MaxParallelSimulations, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                  TickPlacement="Outside"
                                  SnapsTo="StepValues" />
