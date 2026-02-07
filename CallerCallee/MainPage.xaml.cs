@@ -32,37 +32,38 @@ namespace CallerCallee
                 index = tabView.SelectedIndex;
             }
 
-            TableView.Columns.Where(c => c.Header.ToString().Equals("State")).First().Visibility = Visibility.Collapsed;
-            TableView.Columns.Where(c => c.Header.ToString().Equals("Id")).First().Width = new GridLength(100, GridUnitType.Star);
+            TableView.Columns.Where(c => c.Header.ToString().Equals(nameof(DatasetViewModel.State))).First().Visibility = Visibility.Collapsed;
+            TableView.Columns.Where(c => c.Header.ToString().Equals(nameof(DatasetViewModel.Entry))).First().Visibility = Visibility.Collapsed;
+            TableView.Columns.Where(c => c.Header.ToString().Equals(nameof(DatasetViewModel.Id))).First().Width = new GridLength(100, GridUnitType.Star);
             switch (index)
             {
                 case 0:
                     {
-                        TableView.Columns.Where(c => c.Header.ToString().Equals("Turns")).First().Visibility = Visibility.Visible;
-                        TableView.Columns.Where(c => c.Header.ToString().Equals("LastException")).First().Visibility = Visibility.Collapsed;
-                        TableView.Columns.Where(c => c.Header.ToString().Equals("Naive")).First().Visibility = Visibility.Collapsed;
-                        TableView.Columns.Where(c => c.Header.ToString().Equals("Enhanced")).First().Visibility = Visibility.Collapsed;
-                        TableView.Columns.Where(c => c.Header.ToString().Equals("RealDuration")).First().Visibility = Visibility.Collapsed;
+                        TableView.Columns.Where(c => c.Header.ToString().Equals(nameof(DatasetViewModel.Turns))).First().Visibility = Visibility.Visible;
+                        TableView.Columns.Where(c => c.Header.ToString().Equals(nameof(DatasetViewModel.LastException))).First().Visibility = Visibility.Collapsed;
+                        TableView.Columns.Where(c => c.Header.ToString().Equals(nameof(DatasetViewModel.Naive))).First().Visibility = Visibility.Collapsed;
+                        TableView.Columns.Where(c => c.Header.ToString().Equals(nameof(DatasetViewModel.Enhanced))).First().Visibility = Visibility.Collapsed;
+                        TableView.Columns.Where(c => c.Header.ToString().Equals(nameof(DatasetViewModel.RealDuration))).First().Visibility = Visibility.Collapsed;
                         TableView.ShowExportOptions = false;
                         break;
                     }
                 case 1:
                     {
-                        TableView.Columns.Where(c => c.Header.ToString().Equals("Turns")).First().Visibility = Visibility.Visible;
-                        TableView.Columns.Where(c => c.Header.ToString().Equals("LastException")).First().Visibility = Visibility.Collapsed;
-                        TableView.Columns.Where(c => c.Header.ToString().Equals("Naive")).First().Visibility = Visibility.Visible;
-                        TableView.Columns.Where(c => c.Header.ToString().Equals("Enhanced")).First().Visibility = Visibility.Visible;
-                        TableView.Columns.Where(c => c.Header.ToString().Equals("RealDuration")).First().Visibility = Visibility.Visible;
+                        TableView.Columns.Where(c => c.Header.ToString().Equals(nameof(DatasetViewModel.Turns))).First().Visibility = Visibility.Visible;
+                        TableView.Columns.Where(c => c.Header.ToString().Equals(nameof(DatasetViewModel.LastException))).First().Visibility = Visibility.Collapsed;
+                        TableView.Columns.Where(c => c.Header.ToString().Equals(nameof(DatasetViewModel.Naive))).First().Visibility = Visibility.Visible;
+                        TableView.Columns.Where(c => c.Header.ToString().Equals(nameof(DatasetViewModel.Enhanced))).First().Visibility = Visibility.Visible;
+                        TableView.Columns.Where(c => c.Header.ToString().Equals(nameof(DatasetViewModel.RealDuration))).First().Visibility = Visibility.Visible;
                         TableView.ShowExportOptions = true;
                         break;
                     }
                 default: 
                     {
-                        TableView.Columns.Where(c => c.Header.ToString().Equals("Turns")).First().Visibility = Visibility.Collapsed;
-                        TableView.Columns.Where(c => c.Header.ToString().Equals("LastException")).First().Visibility = Visibility.Visible;
-                        TableView.Columns.Where(c => c.Header.ToString().Equals("Naive")).First().Visibility = Visibility.Visible;
-                        TableView.Columns.Where(c => c.Header.ToString().Equals("Enhanced")).First().Visibility = Visibility.Visible;
-                        TableView.Columns.Where(c => c.Header.ToString().Equals("RealDuration")).First().Visibility = Visibility.Visible;
+                        TableView.Columns.Where(c => c.Header.ToString().Equals(nameof(DatasetViewModel.Turns))).First().Visibility = Visibility.Collapsed;
+                        TableView.Columns.Where(c => c.Header.ToString().Equals(nameof(DatasetViewModel.LastException))).First().Visibility = Visibility.Visible;
+                        TableView.Columns.Where(c => c.Header.ToString().Equals(nameof(DatasetViewModel.Naive))).First().Visibility = Visibility.Visible;
+                        TableView.Columns.Where(c => c.Header.ToString().Equals(nameof(DatasetViewModel.Enhanced))).First().Visibility = Visibility.Visible;
+                        TableView.Columns.Where(c => c.Header.ToString().Equals(nameof(DatasetViewModel.RealDuration))).First().Visibility = Visibility.Visible;
                         TableView.ShowExportOptions = true;
                         break;
                     }

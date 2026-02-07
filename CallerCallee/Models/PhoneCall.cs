@@ -187,6 +187,27 @@ namespace CallerCallee.Models
             }
         }
 
+        public async Task TerminateAsync()
+        {
+            try
+            {
+                entry.Children.Clear(); // so that it doesnt trigger the next turn after the current one has finished, and instead ends the call immediately.
+                await caller.Call.HangUpAsync(new HangUpOptions() { ForEveryone = true });
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"{entry.Id}: Exception in ForceEndCallAsync: {ex.Message}");
+                entry.State = State.Failed;
+                entry.Exception = ex;
+            }
+        }
+
+        public bool IsActive()
+        {
+            return caller.Call != null && callee.Call != null && 
+                   (caller.Call.State == CallState.Connected || callee.Call.State == CallState.Connected);
+        }
+
         private async void OnCallStateChangedAsync(object sender, PropertyChangedEventArgs args)
         {
             var call = sender as CommunicationCall;

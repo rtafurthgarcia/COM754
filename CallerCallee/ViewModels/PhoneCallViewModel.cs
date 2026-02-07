@@ -15,7 +15,7 @@ namespace CallerCallee.ViewModels
     public partial class PhoneCallViewModel : ObservableObject
     {
         private readonly PhoneCall phoneCall;
-        public DatasetEntry Entry => phoneCall.Entry;
+        public PhoneCall Call => phoneCall;
 
         public PhoneCallViewModel(PhoneCall phoneCall)
         {
@@ -72,7 +72,7 @@ namespace CallerCallee.ViewModels
         {
             // DispatcherTimer runs on UI thread, so this is safe
             RealDuration = _stopwatch.Elapsed.ToString(@"mm\:ss");
-            Entry.RealDuration = RealDuration;
+            Call.Entry.RealDuration = RealDuration;
 
             if (_stopwatch.Elapsed.TotalSeconds - LastResultTimestamp > 120)
             {

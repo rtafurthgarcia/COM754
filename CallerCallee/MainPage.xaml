@@ -15,6 +15,7 @@
     <Page.Resources>
         <!-- Converted -->
         <converters:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter" />
+        <converters:BoolNegationConverter x:Key="BoolNegationConverter" />
 
         <DataTemplate x:Name="CallTemplate" x:DataType="viewModels:PhoneCallViewModel">
             <Grid Margin="8" RowSpacing="4" ColumnSpacing="12">
@@ -100,6 +101,22 @@
             <AppBarButton Icon="Play" Label="Run"
                     Command="{ x:Bind ViewModel.RunSimulationCommand}"/>
             <AppBarSeparator />
+            <AppBarButton AllowFocusOnInteraction="True" Icon="Setting" Label="Settings">
+                <AppBarButton.Flyout>
+                    <Flyout>
+                        <StackPanel Orientation="Vertical">
+                            <TextBlock Margin="4, 4, 4, 0" Text="{x:Bind x:String.Format('Max parallel simulations: {0}', ViewModel.MaxParallelSimulations), Mode=OneWay}" FontWeight="SemiBold"/>
+                            <Slider IsEnabled="{x:Bind ViewModel.RunSimulationCommand.IsRunning, Mode=OneWay, Converter={StaticResource BoolNegationConverter }}"
+                                 AutomationProperties.Name="Slider with ticks"
+                                 TickFrequency="1" Minimum="1" Maximum="16" StepFrequency="1"
+                                 SmallChange="1" Value="{x:Bind ViewModel.MaxParallelSimulations, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                 TickPlacement="Outside"
+                                 SnapsTo="StepValues" />
+                        </StackPanel>
+                    </Flyout>
+                    </AppBarButton.Flyout>
+            </AppBarButton>
+            <AppBarSeparator />
             <AppBarToggleButton Icon="RepeatAll" Label="Autorun" Command="{x:Bind ViewModel.SetAutorunCommand}"
                   IsChecked="{x:Bind ViewModel.Autorun, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
             <CommandBar.Content>
@@ -118,14 +135,12 @@
                         <SymbolIconSource Symbol="Flag" />
                     </TabViewItem.IconSource>
                 </TabViewItem>
-                <TabViewItem Header="Completed" IsClosable="False">
-                    <InfoBadge Style="{StaticResource AttentionValueInfoBadgeStyle}" HorizontalAlignment="Right" Value="{x:Bind ViewModel.ProgressionCompleted}" />
+                <TabViewItem Header="{x:Bind x:String.Format('Completed ({0})', ViewModel.ProgressionCompleted), Mode=OneWay}" IsClosable="False">
                     <TabViewItem.IconSource>
                         <FontIconSource Glyph="&#xE930;" />
                     </TabViewItem.IconSource>
                 </TabViewItem>
-                <TabViewItem Header="Failed" IsClosable="False">
-                    <InfoBadge Style="{StaticResource AttentionValueInfoBadgeStyle}" HorizontalAlignment="Right" Value="{x:Bind ViewModel.ProgressionFailed}" />
+                <TabViewItem Header="{x:Bind x:String.Format('Failed ({0})', ViewModel.ProgressionFailed), Mode=OneWay}" IsClosable="False">
                     <TabViewItem.IconSource>
                         <FontIconSource Glyph="&#xE783;" />
                     </TabViewItem.IconSource>

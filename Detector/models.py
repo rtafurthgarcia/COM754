@@ -4,6 +4,7 @@ from enum import Enum
 import json
 import time
 from typing import List, Literal, Optional, Tuple
+from venv import logger
 from azure.communication.identity import CommunicationUserIdentifier
 from azure.core.exceptions import DeserializationError
 from azure.communication.callautomation import CallConnectionClient
@@ -307,6 +308,8 @@ def deserialise_event(raw_event):
     if "eventType" in raw_event:
         return classes[raw_event["eventType"]](raw_event["data"])
     elif "type" in raw_event:
+        if (raw_event["type"] == "Microsoft.Communication.TranscriptionFailed"):
+            logger.error(raw_event)
         return Acknowledgment(raw_event["type"])
     else:
         raise DeserializationError()

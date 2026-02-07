@@ -3,6 +3,7 @@ using CallerCallee.Models;
 using CommunityToolkit.Mvvm.DependencyInjection;
 using CommunityToolkit.Mvvm.Messaging;
 using System;
+using System.Diagnostics;
 using System.Threading.Tasks;
 using static CallerCallee.Models.SystemwideMessage;
 
@@ -18,10 +19,10 @@ namespace CallerCallee.Services
 
         private readonly AuthenticationService authenticationService = Ioc.Default.GetRequiredService<AuthenticationService>();
         private readonly DatasetService datasetService = Ioc.Default.GetRequiredService<DatasetService>();
-        private readonly ServiceBusClient client;
-        private readonly ServiceBusProcessor processor;
+        private ServiceBusClient client;
+        private ServiceBusProcessor processor;
 
-        public DetectionService()
+        public async Task StartProcessingAsync()
         {
             var clientOptions = new ServiceBusClientOptions()
             {
@@ -30,12 +31,27 @@ namespace CallerCallee.Services
             client = new ServiceBusClient(authenticationService.KeyVault.GetSecret(AuthenticationService.SB_CONNECTION_STRING).Value.Value, clientOptions);
 
             processor = client.CreateProcessor("detection-results", new ServiceBusProcessorOptions());
+            processor.ProcessMessageAsync += OnProcessMessageAsync;
+            processor.ProcessErrorAsync += OnProcessErrorAsync;
+            await processor.StartProcessingAsync();
         }
 
-        public async Task StartProcessingAsync()
+        private async Task OnProcessErrorAsync(ProcessErrorEventArgs arg)
         {
-            processor.ProcessMessageAsync += OnProcessMessageAsync;
-            await processor.StartProcessingAsync();
+            Debug.WriteLine($"Exception encountered whilst procesing incoming messages: {arg.Exception.Message}");   
+        }
+
+        public async Task StopProcessingAsync()
+        {
+            if (processor != null)
+            {
+                await processor.StopProcessingAsync();
+                await processor.DisposeAsync();
+            }
+            if (client != null)
+            {
+                await client.DisposeAsync();
+            }
         }
 
         private async Task OnProcessMessageAsync(ProcessMessageEventArgs arg)
@@ -44,24 +60,17 @@ namespace CallerCallee.Services
 
             if (subject.Equals(MessageSubject.TURN_ANALYSIS))
             {
-                (Guid groupId, DetectionResult detectionResult) = await DetectionResult.FromJsonAsync(arg.Message.Body.ToString());
-                if (datasetService.DoneDataset.TryGetValue(groupId, out DatasetEntry entry))
-                {
-                    entry.DetectionResults.Add(detectionResult);
-                    datasetService.DoneDataset[groupId] = entry;
-                    WeakReferenceMessenger.Default.Send(new DetectionResultReceived(groupId));
-                }
+                Classifications detectionResult = await Classifications.FromJsonAsync(arg.Message.Body.ToString());
+                WeakReferenceMessenger.Default.Send(new DetectionResultReceived(detectionResult));
+                
             } 
             else
             {
-                Guid groupId = await DetectionResult.FromJsonGuidOnlyAsync(arg.Message.Body.ToString());
-                if (datasetService.DoneDataset.TryGetValue(groupId, out DatasetEntry entry))
-                {
-                    entry.State = State.Completed;
-                    datasetService.DoneDataset[groupId] = entry;
-                    WeakReferenceMessenger.Default.Send(new EndOfAnalysis(groupId));
-                }
+                Guid groupId = await Classifications.FromJsonGuidOnlyAsync(arg.Message.Body.ToString());
+                WeakReferenceMessenger.Default.Send(new EndOfAnalysis(groupId));
+                
             }
+            await arg.CompleteMessageAsync(arg.Message);
         }
     }
 }

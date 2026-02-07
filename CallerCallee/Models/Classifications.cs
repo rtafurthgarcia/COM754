@@ -13,8 +13,9 @@ namespace CallerCallee.Models
         public float Duration { get; init; }
     }
 
-    public record DetectionResult
+    public record Classifications
     {
+        public Guid GroupId { get; init; }
         public string Id { get; init; }
         public float StartTimestamp { get; init; }
         public string TranscribedText { get; init; }
@@ -57,16 +58,17 @@ namespace CallerCallee.Models
             public string GroupId { get; init; }
         }
 
-        public static async Task<(Guid, DetectionResult)> FromJsonAsync(string json)
+        public static async Task<Classifications> FromJsonAsync(string json)
         {
             var dto = await JsonSerializer.DeserializeAsync<TurnOfConversationDto>(
                 new MemoryStream(Encoding.UTF8.GetBytes(json)),
                 options
             ) ?? throw new JsonException("Failed to deserialize TurnOfConversation");
 
-            return (Guid.Parse(dto.GroupId), new DetectionResult
+            return (new Classifications
             {
                 Id = dto.Id,
+                GroupId = Guid.Parse(dto.GroupId),
                 TranscribedText = dto.Text,
                 StartTimestamp = (float)dto.StartTimestamp,
                 Speaker = Enum.Parse<Speaker>(dto.Speaker, ignoreCase: true),

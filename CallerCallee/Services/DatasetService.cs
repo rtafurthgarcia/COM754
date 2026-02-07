@@ -17,18 +17,7 @@ namespace CallerCallee.Services
             get { return todoDataset; } 
         }
 
-        private readonly ConcurrentDictionary<Guid, DatasetEntry> doneDataset = new();
-        public ConcurrentDictionary<Guid, DatasetEntry> DoneDataset
-        {
-            get { return doneDataset; }
-        }
-
-        private int total = 0;
-        public int Total
-        {
-            get { return total; }
-        }
-
+     
         public async Task<List<DatasetEntry>> LoadDatasetEntries(string sourcePath)
         {
             todoDataset.Clear();
@@ -68,8 +57,6 @@ namespace CallerCallee.Services
                         FilePath = f.FullName,
                         Is = entry.Is
                     })]);
-
-                total += entry.Children.Count;
             }
 
             return entry;

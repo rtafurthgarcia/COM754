@@ -16,7 +16,9 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using Windows.ApplicationModel.Contacts;
 using static CallerCallee.Models.SystemwideMessage;
+using static System.Windows.Forms.VisualStyles.VisualStyleElement.TrackBar;
 
 namespace CallerCallee.ViewModels
 {
@@ -52,10 +54,14 @@ namespace CallerCallee.ViewModels
         [NotifyCanExecuteChangedFor(nameof(RunSimulationCommand))]
         public partial DefaultAzureCredential Credential { get; set; }
 
+        [ObservableProperty]
+        public partial int MaxParallelSimulations { get; set; } = 1;
+
         private readonly DatasetService datasetService = Ioc.Default.GetRequiredService<DatasetService>();
         private readonly CallerCalleeService callerCalleeService = Ioc.Default.GetRequiredService<CallerCalleeService>();
         private readonly AuthenticationService authenticationService = Ioc.Default.GetRequiredService<AuthenticationService>();
         private readonly SettingsService settingsService = Ioc.Default.GetRequiredService<SettingsService>();
+        private readonly DetectionService detectionService = Ioc.Default.GetRequiredService<DetectionService>();
 
         private readonly DispatcherQueue dispatcherQueue = DispatcherQueue.GetForCurrentThread();
 
@@ -73,13 +79,21 @@ namespace CallerCallee.ViewModels
 
         private bool CanRunSimulation()
         {
-            return Credential is not null && LoadedDatasetMessage is not null;
+            return Credential is not null && LoadedDatasetMessage is not null && MaxParallelSimulations > 0;
         }
 
         [RelayCommand]
         public void SetAutorun()
         {
             settingsService.SetValue("autorun", Autorun);
+            if (AutorunEverythingCommand.IsRunning)
+            {
+                AutorunEverythingCommand.Cancel();
+                datasetService.TodoDataset.Clear();
+                DatasetCount = 0;
+                DataSource.Clear();
+                DataSource2.Clear();
+            }
         }
 
         [RelayCommand]
@@ -106,8 +120,11 @@ namespace CallerCallee.ViewModels
         {
             try
             {
-                await callerCalleeService.StartSimulation(1);
-            } 
+                await Task.WhenAll([
+                    callerCalleeService.StartSimulation(MaxParallelSimulations),
+                    detectionService.StartProcessingAsync()
+                ]);
+            }
             catch (Exception e)
             {
                 AppNotification notification = new AppNotificationBuilder()
@@ -147,8 +164,8 @@ namespace CallerCallee.ViewModels
             try
             {
                 var list = await datasetService.LoadDatasetEntries(path);
-                list.ForEach(d => DataSource2.Add(new DatasetViewModel(d)));
                 DatasetCount = datasetService.TodoDataset is null ? 0 : datasetService.TodoDataset.Count;
+                list.ForEach(d => DataSource2.Add(new DatasetViewModel(d)));
                 await AuthenticateCommand.ExecuteAsync(null);
                 await RunSimulationCommand.ExecuteAsync(null);
             }
@@ -235,16 +252,40 @@ namespace CallerCallee.ViewModels
 
         public void Receive(CallInterrupted message)
         {
-            dispatcherQueue.TryEnqueue(() =>
+            dispatcherQueue.TryEnqueue((DispatcherQueueHandler)(async () =>
             {
-                ProgressionFailed += 1;
-                var phoneCall = DataSource.Where(vm => vm.Id == message.Value.Entry.Id)
+                var phoneCall = DataSource.Where(vm => vm.Id.Equals(message.Value.Entry.Id))
                     .FirstOrDefault();
-                phoneCall.StopTimer();
-                DataSource.Remove(phoneCall);
-                message.Value.Entry.State = State.Failed;
-                DataSource2.Add(new DatasetViewModel(message.Value.Entry));
-            });
+
+                if (phoneCall != null)
+                {
+                    DataSource.Remove(phoneCall);
+                    phoneCall.StopTimer();
+                    phoneCall.State = State.Failed;
+                    phoneCall.CurrentTurnId = "";
+                    phoneCall.CallerSymbol = Symbol.Mute;
+                    phoneCall.CalleeSymbol = Symbol.Mute;
+                    DataSource2.Where(d => d.Entry.Id.Equals(phoneCall.Id)).FirstOrDefault().Entry = phoneCall.Call.Entry;
+
+                    if (phoneCall.Call.IsActive())
+                    {
+                        await phoneCall.Call.TerminateAsync();
+                    }
+                }
+
+                if (datasetService.TodoDataset.IsEmpty)
+                {
+                    await detectionService.StopProcessingAsync();
+
+                    AppNotification notification = new AppNotificationBuilder()
+                        .AddText("Simulation completed!")
+                        .AddText(string.Format("Progression: {0} / {1}", Progression, DatasetCount))
+                        .SetAppLogoOverride(new Uri("ms-appx:///Assets/success-96.png"), AppNotificationImageCrop.Default)
+                        .BuildNotification();
+                    AppNotificationManager.Default.Show(notification);
+                }
+                ProgressionFailed = DataSource2.Where(d => d.State.Equals(State.Failed)).Count();
+            }));
         }
 
         public void Receive(NextTurnBeingPlayed message)
@@ -283,14 +324,32 @@ namespace CallerCallee.ViewModels
 
         public void Receive(EndOfAnalysis message)
         {
-            dispatcherQueue.TryEnqueue(() =>
+            dispatcherQueue.TryEnqueue(async () =>
             {
-                ProgressionCompleted += 1;
-                var phoneCall = DataSource.Where(vm => vm.Guid.Equals(message.Value))
+                var phoneCall = DataSource.Where(vm => vm.Guid == message.Value)
                     .FirstOrDefault();
-                phoneCall.StopTimer();
-                DataSource.Remove(phoneCall);
-                DataSource2.Add(new DatasetViewModel(datasetService.DoneDataset[message.Value]));
+
+                if (phoneCall != null)
+                {
+                    phoneCall.StopTimer();
+                    DataSource.Remove(phoneCall);
+                    phoneCall.State = State.Completed;
+                    DataSource2.Where(d => phoneCall.Call.Entry.Id.Equals(d.Entry.Id)).FirstOrDefault().Entry = phoneCall.Call.Entry;
+                }
+
+                if (datasetService.TodoDataset.IsEmpty)
+                {
+                    await detectionService.StopProcessingAsync();
+
+                    AppNotification notification = new AppNotificationBuilder()
+                        .AddText("Simulation completed!")
+                        .AddText(string.Format("Progression: {0} / {1}", Progression, DatasetCount))
+                        .SetAppLogoOverride(new Uri("ms-appx:///Assets/success-96.png"), AppNotificationImageCrop.Default)
+                        .BuildNotification();
+                    AppNotificationManager.Default.Show(notification);
+                }
+
+                ProgressionCompleted = DataSource2.Where(d => d.State.Equals(State.Completed)).Count();
             });
         }
 
@@ -298,11 +357,15 @@ namespace CallerCallee.ViewModels
         {
             dispatcherQueue.TryEnqueue(() =>
             {
-                var phoneCall = DataSource.Where(vm => vm.Guid.Equals(message.Value))
+                var phoneCall = DataSource.Where(vm => vm.Guid.Equals(message.Value.GroupId))
                     .FirstOrDefault();
-                phoneCall.LastResultTimestamp = new DateTimeOffset(DateTime.UtcNow).ToUnixTimeSeconds();
-                phoneCall.Naive = datasetService.DoneDataset[message.Value].DetectionResults.LastOrDefault().NaiveClassification.Flag;
-                phoneCall.Enhanced = datasetService.DoneDataset[message.Value].DetectionResults.LastOrDefault().EnhancedClassification.Flag;
+
+                if (phoneCall != null)
+                {
+                    phoneCall.LastResultTimestamp = new DateTimeOffset(DateTime.UtcNow).ToUnixTimeSeconds();
+                    phoneCall.Naive = message.Value.NaiveClassification.Flag;
+                    phoneCall.Enhanced = message.Value.EnhancedClassification.Flag;
+                }
             });
         }
     }

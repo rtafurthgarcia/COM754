@@ -75,7 +75,7 @@ namespace CallerCallee.Services
                     phoneCall.OnEndOfCall += CallEnded;
                     callEntry.State = State.Ongoing;
                     await phoneCall.DialUp();
-                    datasetService.DoneDataset.TryAdd(phoneCall.Guid, callEntry);
+                    //.TryAdd(phoneCall.Guid, callEntry);
                 }
                 catch (Exception e)
                 {
@@ -90,7 +90,6 @@ namespace CallerCallee.Services
                         phoneCall.OnEndOfCall -= CallEnded;
                         callEntry.Exception = e;
                         callEntry.State = State.Failed;
-                        datasetService.DoneDataset.TryAdd(Guid.NewGuid(), callEntry);
                         WeakReferenceMessenger.Default.Send(
                             new CallInterrupted(
                                 phoneCall

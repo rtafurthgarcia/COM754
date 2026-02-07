@@ -18,7 +18,7 @@ namespace CallerCallee.Models
         public string FilePath { get; set; }
         public EntryType Type { get; set; }
         public Queue<DatasetEntry> Children { get; set; }
-        public List<DetectionResult> DetectionResults { get; set; } = [];
+        public List<Classifications> DetectionResults { get; set; } = [];
         public State State { get; set; } = State.Todo;
         public Exception Exception { get; set; }
         public string RealDuration { get; set; }

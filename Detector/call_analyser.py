@@ -1,24 +1,19 @@
 
 import asyncio
-import json
 import logging
-from pickle import TRUE
-from pyclbr import Class
 import time
-from typing import TypeVar
 from azure.communication.callautomation import CallAutomationClient, TranscriptionOptions
 from azure.communication.identity import CommunicationIdentityClient
 from azure.core.exceptions import ServiceResponseError
 from azure.servicebus import ServiceBusClient, ServiceBusMessage
 from openai import AsyncAzureOpenAI
-from dataclasses import asdict
 from models import CallStarted, Classification, EndOfAnalysis, IntermediateClassification, OngoingCall, TranscriptionData, TurnOfConversation, get_prompts
 
 logger = logging.getLogger("uvicorn.error")
 
 class CallAnalyser:
     DETECTOR_MODEL = "gpt-5-mini"
-    TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe"
+    TRANSCRIPTION_MODEL = "20250808"
     QUEUE_NAME = "detection-results"
 
     def __init__(
@@ -28,7 +23,7 @@ class CallAnalyser:
         ai_client: AsyncAzureOpenAI,
         servicebus_client: ServiceBusClient, 
         local_endpoint: str,
-        cs_ai_endpoint: str
+        sm_endpoint: str
     ):
         self._call_automation_client = call_automation_client
         self._identity_client = identity_client
@@ -36,12 +31,12 @@ class CallAnalyser:
         self._servicebus_client = servicebus_client
         self._servicebus_sender = servicebus_client.get_queue_sender(self.QUEUE_NAME)
         self._local_endpoint = local_endpoint
-        self._cs_ai_endpoint = cs_ai_endpoint
+        self._sm_endpoint = sm_endpoint
 
         self._ongoing_calls: dict[str, OngoingCall] = {}
         self._lock = asyncio.Lock()
     
-    def join_call(self, call: CallStarted):
+    async def join_call(self, call: CallStarted):
         accepted_call = self._call_automation_client.connect_call(
             group_call_id=call.group_id,
             callback_url=f"https://{self._local_endpoint}/calls",
@@ -49,13 +44,13 @@ class CallAnalyser:
                 transport_url=f"wss://{self._local_endpoint}/ws",
                 transport_type="websocket",
                 locale="en-US",
-                start_transcription=True,
+                start_transcription=False,
                 enable_intermediate_results=False,
                 pii_redaction=None,
                 enable_sentiment_analysis=False,
                 speech_recognition_model_endpoint_id=self.TRANSCRIPTION_MODEL
             ),
-            cognitive_services_endpoint=self._cs_ai_endpoint)
+            cognitive_services_endpoint=self._sm_endpoint)
 
         if (accepted_call.call_connection_id is None):
             logger.error(f"{__name__}: No call connection ID found")
@@ -65,7 +60,10 @@ class CallAnalyser:
             call=self._call_automation_client.get_call_connection(accepted_call.call_connection_id),
             group_id=call.group_id
         )
-        
+
+        await asyncio.sleep(5) # hope that by then the call will be established
+        self._ongoing_calls[accepted_call.call_connection_id].call.start_transcription()
+
         return accepted_call.call_connection_id
 
     def leave_call(self, call_id: str):
@@ -171,6 +169,9 @@ class CallAnalyser:
             logger.info(f"{__name__}: #{turn.group_id}: {turn.id}: turn analysed.")
 
     async def notify_end_of_analysis(self, call_id: str):
+        if (call_id not in self._ongoing_calls.keys()):
+            return
+        
         try:
             call = self._ongoing_calls[call_id]
 
@@ -181,6 +182,6 @@ class CallAnalyser:
                 logger.info(f"{__name__}: {call.group_id}: end of analysis.")
         except Exception as e:
             logger.error(f"{__name__}: #{call_id}: Couldn't notify client of the end of the analysis due to the following error:")
-            logger.error(f"{__name__}: #{call_id}: {e}")
+            logger.error(f"{__name__}: #{call_id}: {e.with_traceback}")
         finally:
             del self._ongoing_calls[call_id]

@@ -42,7 +42,7 @@ def create_app(container: Container) -> FastAPI:
 
             if isinstance(event, CallStarted):
                 logger.info(f"{__name__}: Joining call {event.group_id}")
-                call_analyser.join_call(event)
+                await call_analyser.join_call(event)
 
             if isinstance(event, CallEnded):
                 logger.info(f"{__name__}: Leaving call {event.group_id}")
@@ -61,32 +61,36 @@ def create_app(container: Container) -> FastAPI:
         await manager.connect(websocket)
         logger.info(f"{__name__}: connection received from {websocket.client or "unknown host?"}")
         call_connection_id = None
+        exception = None
         running_analyses = set()
         try:
-            async with asyncio.TaskGroup() as tg:
-                while True:
-                    data = await websocket.receive_text()
-                    message = deserialise_ws_message(data)    
-                    logger.info(f"{__name__}: received message of type {type(message)}")
+            #async with asyncio.TaskGroup() as tg:
+            while True:
+                data = await websocket.receive_text()
+                message = deserialise_ws_message(data)    
+                logger.info(f"{__name__}: received message of type {type(message)}")
 
-                    if (isinstance(message, TranscriptionMetadata)):
-                        logger.info(f"{__name__}: call connection ID obtained: {message.callConnectionId}")
-                        call_connection_id = message.callConnectionId
-                    elif (isinstance(message, TranscriptionData) and call_connection_id is not None):
-                        logger.info(f"{__name__}: {call_connection_id}: call is being analysed...")
-                        # needed to add each task to a set, to keep a strong reference
-                        # otherwise it gets garbage collected => means many results were never returned!
-                        # see: https://textual.textualize.io/blog/2023/02/11/the-heisenbug-lurking-in-your-async-code/
-                        new_analysis = tg.create_task(call_analyser.run_analysis(call_connection_id, message))
-                        running_analyses.add(new_analysis)
-                        new_analysis.add_done_callback(running_analyses.discard)
+                if (isinstance(message, TranscriptionMetadata)):
+                    logger.info(f"{__name__}: call connection ID obtained: {message.callConnectionId}")
+                    call_connection_id = message.callConnectionId
+                elif (isinstance(message, TranscriptionData) and call_connection_id is not None):
+                    logger.info(f"{__name__}: {call_connection_id}: call is being analysed...")
+                    # needed to add each task to a set, to keep a strong reference
+                    # otherwise it gets garbage collected => means many results were never returned!
+                    # see: https://textual.textualize.io/blog/2023/02/11/the-heisenbug-lurking-in-your-async-code/
+                    await call_analyser.run_analysis(call_connection_id, message)
+                    #new_analysis = tg.create_task(call_analyser.run_analysis(call_connection_id, message))
+                    #running_analyses.add(new_analysis)
+                    #new_analysis.add_done_callback(running_analyses.discard)
 
         except WebSocketDisconnect:
             logger.info(f"{__name__}: disconnected")
         except asyncio.CancelledError as e:
             logger.error(f"{__name__}: connection lost due to an unexpected thread cancellation: {e}")
+            #exception = e
         except Exception as e:
-            logger.error(f"{__name__}: connection lost due to an unexpected error: {e}")
+            logger.error(f"{__name__}: connection lost due to an unexpected error: {e.with_traceback}")
+            #exception = e
         finally:
             manager.remove(websocket)
             if (call_connection_id is not None):

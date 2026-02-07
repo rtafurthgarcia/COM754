@@ -10,26 +10,32 @@ using System.Linq;
 
 namespace CallerCallee.ViewModels
 {
-    public partial class DatasetViewModel(DatasetEntry datasetEntry) : ObservableObject
+    public partial class DatasetViewModel : ObservableObject
     {
-        public string Id => "Entry #" + datasetEntry.Id;
+        [ObservableProperty]
+        public partial DatasetEntry Entry { get; set; }
+        public DatasetViewModel(DatasetEntry datasetEntry)
+        {
+            Entry = datasetEntry;
+        }
 
-        public Flag Is => datasetEntry.Is; 
+        public string Id => "Entry #" + Entry.Id;
 
-        public Flag Human => datasetEntry.HumanClassification;
+        public Flag Is => Entry.Is; 
 
-        public Flag Naive => datasetEntry.DetectionResults.Count > 0 ? datasetEntry.DetectionResults.LastOrDefault().NaiveClassification.Flag : Flag.Unknown;
+        public Flag Human => Entry.HumanClassification;
 
-        public Flag Enhanced => datasetEntry.DetectionResults.Count > 0 ? datasetEntry.DetectionResults.LastOrDefault().EnhancedClassification.Flag : Flag.Unknown;
+        public Flag Naive => Entry.DetectionResults.Count > 0 ? Entry.DetectionResults.LastOrDefault().NaiveClassification.Flag : Flag.Unknown;
+        public Flag Enhanced => Entry.DetectionResults.Count > 0 ? Entry.DetectionResults.LastOrDefault().EnhancedClassification.Flag : Flag.Unknown;
 
-        public int Turns => datasetEntry.Children?.Count ?? 0;
+        public int Turns => Entry.Children?.Count ?? 0;
 
-        public State State => datasetEntry.State;
+        public State State => Entry.State;
 
         [ObservableProperty]
         public partial Exception LastException { get; set; }
 
-        public string RealDuration => datasetEntry.RealDuration;
+        public string RealDuration => Entry.RealDuration;
 
         public Brush GetRightColor(Flag flag)
         {
