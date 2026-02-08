@@ -1,5 +1,6 @@
 ﻿using CallerCallee.Models;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using CommunityToolkit.Mvvm.Messaging;
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
@@ -80,7 +81,17 @@ namespace CallerCallee.ViewModels
             stopwatch.Stop();
         }
 
+        [RelayCommand]
+        public void CancelPart(int id)
+        {
+            StopTimer();
 
+            WeakReferenceMessenger.Default.Send(
+                new CallInterrupted(
+                    new Exception("Call interrupted by the user.") { Source = id.ToString() }
+                )
+            );
+        }
         public static Brush GetRightColorState(State state)
         {
             if (state.Equals(State.Failed))
