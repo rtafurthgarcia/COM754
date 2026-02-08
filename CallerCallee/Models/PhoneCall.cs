@@ -53,7 +53,7 @@ namespace CallerCallee.Models
         public Speaker CurrentSpeaker { 
             get { return currentSpeaker; }
         }
-        private readonly CallTokenRefreshOptions callTokenRefreshOptions = new(true);
+        private readonly CallTokenRefreshOptions callTokenRefreshOptions = new(false);
         private readonly CallClientOptions callClientOptions = new()
         {
             Diagnostics = new CallDiagnosticsOptions()
@@ -90,6 +90,7 @@ namespace CallerCallee.Models
         {
             WeakReferenceMessenger.Default.Send(new CallInitiated(this));
             var callerTokenCredential = new CallTokenCredential(caller.IdentifierAndToken.AccessToken.Token, callTokenRefreshOptions);
+            
             var calleeTokenCredential = new CallTokenCredential(callee.IdentifierAndToken.AccessToken.Token, callTokenRefreshOptions);
 
             caller.CallClient = new(callClientOptions);

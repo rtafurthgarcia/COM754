@@ -112,6 +112,13 @@
                                  SmallChange="1" Value="{x:Bind ViewModel.MaxParallelSimulations, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                  TickPlacement="Outside"
                                  SnapsTo="StepValues" />
+                            <TextBlock Margin="4, 4, 4, 0" Text="{x:Bind x:String.Format('Number of entries to skip: {0}', ViewModel.DatasetsToSkipFromBeginning), Mode=OneWay}" FontWeight="SemiBold"/>
+                            <Slider IsEnabled="{x:Bind ViewModel.RunSimulationCommand.IsRunning, Mode=OneWay, Converter={StaticResource BoolNegationConverter }}"
+                                 AutomationProperties.Name="Slider with ticks"
+                                 TickFrequency="1" Minimum="0" Maximum="1000" StepFrequency="1"
+                                 SmallChange="1" Value="{x:Bind ViewModel.DatasetsToSkipFromBeginning, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                 TickPlacement="Outside"
+                                 SnapsTo="StepValues" />
                         </StackPanel>
                     </Flyout>
                     </AppBarButton.Flyout>

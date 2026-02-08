@@ -235,7 +235,6 @@ class TurnOfConversation:
     text: str
     naive_classification: Optional[Classification] = None
     enhanced_classification: Optional[Classification] = None
-    start_timestamp: float = time.time()
 
     def to_json(self) -> str:
         payload = {
@@ -244,8 +243,7 @@ class TurnOfConversation:
             "speaker": self.speaker,
             "text": self.text,
             "naive_classification": serialise_classification(self.naive_classification),
-            "enhanced_classification": serialise_classification(self.enhanced_classification),
-            "start_timestamp": self.start_timestamp
+            "enhanced_classification": serialise_classification(self.enhanced_classification)
         }
 
         return json.dumps(payload, ensure_ascii=False)
@@ -255,7 +253,6 @@ class OngoingCall:
     group_id: str 
     call: CallConnectionClient
     _conversation: OrderedDict[float, TurnOfConversation] = field(default_factory=OrderedDict)
-    received_timestamp: float = time.time()
 
     def get_final_results(self) -> Tuple[Classification | None, Classification | None]:
         last_ruling = self._conversation[next(reversed(self._conversation))]
@@ -264,27 +261,27 @@ class OngoingCall:
     def conversation_to_str(self):
         result = ""
 
-        for turn in self._conversation.values():
-            result += f"{turn.speaker} at {turn.start_timestamp} said:\n"
-            result += f"{turn.text}"
+        speaker = "Caller"
+        for timestamp, turn in self._conversation.items():
+            speaker = "Callee" if speaker == "Caller" else "Caller"
+
+            result += f"{speaker} said at {timestamp}:\n"
+            result += f"{turn.text}\n"
 
         return result
     
-    def add_new_turn(self, speaker: str, text: str) -> float:
-        timestamp = time.time()
-        self._conversation[timestamp] = TurnOfConversation(
+    def add_new_turn(self, speaker: str, text: str, start_timestamp: float):
+        self._conversation[start_timestamp] = TurnOfConversation(
             id=len(self._conversation) + 1,
             group_id=self.group_id,
             speaker=speaker, 
-            text=text
+            text=text,
         )
-
-        return timestamp
     
     def conclude(self, 
-        timestamp: float, 
         naive_classification: Classification, 
-        enhanced_classification: Classification
+        enhanced_classification: Classification,
+        timestamp: float
     ) -> TurnOfConversation:
         self._conversation[timestamp].naive_classification = naive_classification
         self._conversation[timestamp].enhanced_classification = enhanced_classification

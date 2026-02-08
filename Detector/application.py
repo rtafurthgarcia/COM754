@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, Response, Depends
 from fastapi.responses import JSONResponse
 import uvicorn
@@ -66,6 +67,7 @@ def create_app(container: Container) -> FastAPI:
             while True:
                 data = await websocket.receive_text()
                 message = deserialise_ws_message(data)    
+                start_timestamp = time.time()
                 logger.info(f"{__name__}: received message of type {type(message)}")
 
                 if (isinstance(message, TranscriptionMetadata)):
@@ -79,7 +81,7 @@ def create_app(container: Container) -> FastAPI:
                         await websocket.close(1000, "call ended")
                         break
                     else:
-                        await call_analyser.run_analysis(call_connection_id, message)
+                        await call_analyser.run_analysis(call_connection_id, message, start_timestamp)
                     
 
         except WebSocketDisconnect:

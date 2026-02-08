@@ -18,14 +18,14 @@ namespace CallerCallee.Services
         }
 
      
-        public async Task<List<DatasetEntry>> LoadDatasetEntries(string sourcePath)
+        public async Task<List<DatasetEntry>> LoadDatasetEntries(string sourcePath, int skip = 0)
         {
             todoDataset.Clear();
 
             var data = await File.ReadAllTextAsync(sourcePath);
             var rows = data.Split(Environment.NewLine);
             var results = rows
-                .Skip(1)
+                .Skip(1 + skip)
                 .Where(row => row.Length > 3)
                 .Select(s => ParseRow(s, sourcePath))
                 .Select(FindTurnsOfConversation)

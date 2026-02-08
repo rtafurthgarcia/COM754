@@ -75,9 +75,9 @@ namespace CallerCallee.Models
 
         private static SerializableDatasetEntry CreateSerializableSnapshot(DatasetEntry source)
         {
-            return Clone(source, depth: 0);
+            return Clone(source);
 
-            static SerializableDatasetEntry Clone(DatasetEntry entry, int depth)
+            static SerializableDatasetEntry Clone(DatasetEntry entry)
             {
                 return new SerializableDatasetEntry
                 {

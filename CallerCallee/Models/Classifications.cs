@@ -18,7 +18,6 @@ namespace CallerCallee.Models
     {
         public Guid? GroupId { get; init; }
         public string Id { get; init; }
-        public float StartTimestamp { get; init; }
         public string TranscribedText { get; init; }
         public ClassificationResult NaiveClassification { get; init; }
         public ClassificationResult EnhancedClassification { get; init; }
@@ -48,9 +47,6 @@ namespace CallerCallee.Models
 
             [JsonPropertyName("enhanced_classification")]
             public JsonElement? EnhancedClassification { get; init; }
-
-            [JsonPropertyName("start_timestamp")]
-            public double StartTimestamp { get; init; }
         }
 
         private record EndOfAnalysisDto
@@ -84,14 +80,13 @@ namespace CallerCallee.Models
                 Id = dto.Id.ToString(),
                 GroupId = Guid.Parse(dto.GroupId),
                 TranscribedText = dto.Text,
-                StartTimestamp = (float)dto.StartTimestamp,
                 Speaker = realSpeaker,
-                NaiveClassification = ParseClassification(dto.NaiveClassification, (float)dto.StartTimestamp),
-                EnhancedClassification = ParseClassification(dto.EnhancedClassification, (float)dto.StartTimestamp)
+                NaiveClassification = ParseClassification(dto.NaiveClassification),
+                EnhancedClassification = ParseClassification(dto.EnhancedClassification)
             });
         }
 
-        private static ClassificationResult ParseClassification(JsonElement? element, float startTimestamp)
+        private static ClassificationResult ParseClassification(JsonElement? element)
         {
             if (element is null || element.Value.ValueKind == JsonValueKind.Null)
             {
@@ -116,7 +111,7 @@ namespace CallerCallee.Models
 
                 if (value.TryGetProperty("timestamp", out var durationProp))
                 {
-                    duration = durationProp.GetSingle() - startTimestamp;
+                    duration = durationProp.GetSingle();
                 }
 
                 return new ClassificationResult

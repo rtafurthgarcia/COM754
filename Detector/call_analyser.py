@@ -46,7 +46,7 @@ class CallAnalyser:
                 transport_url=f"wss://{self._local_endpoint}/ws",
                 transport_type="websocket",
                 locale="en-US",
-                start_transcription=False,
+                start_transcription=True,
                 enable_intermediate_results=False,
                 pii_redaction=None,
                 enable_sentiment_analysis=False,
@@ -63,9 +63,6 @@ class CallAnalyser:
             call=self._call_automation_client.get_call_connection(accepted_call.call_connection_id),
             group_id=call.group_id
         )
-
-        await asyncio.sleep(5) # hope that by then the call will be established
-        self._ongoing_calls[accepted_call.call_connection_id].call.start_transcription()
 
         return accepted_call.call_connection_id
 
@@ -90,14 +87,15 @@ class CallAnalyser:
         except ResourceNotFoundError:
             return False
 
-    async def run_analysis(self, call_connection_id: str, new_transcription: TranscriptionData): 
+    async def run_analysis(self, call_connection_id: str, new_transcription: TranscriptionData, start_timestamp: float): 
         if (not self.is_still_connected(call_connection_id)):
             logger.info(f"{__name__}: stopping the transcription.")
             return
 
-        timestamp = self._ongoing_calls[call_connection_id].add_new_turn(
+        self._ongoing_calls[call_connection_id].add_new_turn(
             speaker=new_transcription.participantRawID, 
-            text=new_transcription.text
+            text=new_transcription.text,
+            start_timestamp=start_timestamp
         )
 
         future_naive = self._analyse_call_for_vishing(
@@ -130,6 +128,7 @@ class CallAnalyser:
                 results: tuple[Classification, IntermediateClassification, IntermediateClassification, IntermediateClassification, IntermediateClassification] = await asyncio.gather(future_naive, future_authority, future_distraction, future_social_proof, future_prohibited) # type: ignore
 
                 naive_classification = results[0]
+                naive_classification.timestamp = naive_classification.timestamp - start_timestamp
 
                 worst_timestamp = -1
                 for result in results[1:]:
@@ -137,18 +136,18 @@ class CallAnalyser:
                         worst_timestamp = result.timestamp
 
                 if (results[1].answer or results[2].answer or results[3].answer) and results[4].answer:
-                    enhanced_classification = Classification(answer="FRAUD", timestamp=worst_timestamp)
+                    enhanced_classification = Classification(answer="FRAUD", timestamp=worst_timestamp - start_timestamp)
                 else:
-                    enhanced_classification = Classification(answer="SAFE", timestamp=worst_timestamp)
+                    enhanced_classification = Classification(answer="SAFE", timestamp=worst_timestamp - start_timestamp)
         except asyncio.CancelledError as e:
             logger.error(f"{__name__}: {call_connection_id}: Failed to asssess this turn of conversation due to the following error: {e}")
 
         try:
             await self._send_turn_analysis_result(
                 self._ongoing_calls[call_connection_id].conclude(
-                    timestamp, 
                     naive_classification, 
-                    enhanced_classification
+                    enhanced_classification,
+                    timestamp=start_timestamp,
                 )
             ) 
         except Exception as e:

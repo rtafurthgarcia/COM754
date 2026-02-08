@@ -24,7 +24,8 @@ namespace CallerCallee.Services
         public async Task StartSimulation(int maxAmountOfParallelCalls)
         {
             retries.Clear();
-
+            var connectionString = authenticationService.KeyVault.GetSecret(AuthenticationService.CS_CONNECTION_STRING).Value;
+            var communicationIdentity = new CommunicationIdentityClient(connectionString.Value);
             semaphore = new SemaphoreSlim(maxAmountOfParallelCalls, maxAmountOfParallelCalls);
             Debug.WriteLine($"Running simulation on {datasetService.TodoDataset.Count} calls.");
 
@@ -36,7 +37,9 @@ namespace CallerCallee.Services
             while (!datasetService.TodoDataset.IsEmpty) 
             {
                 await semaphore.WaitAsync();
-                var (callerId, calleeId) = await authenticationService.GetNewTokens(); 
+
+                CommunicationUserIdentifierAndToken callerId = communicationIdentity.CreateUserAndToken([CommunicationTokenScope.VoIP]);
+                CommunicationUserIdentifierAndToken calleeId = communicationIdentity.CreateUserAndToken([CommunicationTokenScope.VoIP]);
 
                 if (callEntry is null)
                 {

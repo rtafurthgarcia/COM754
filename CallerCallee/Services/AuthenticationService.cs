@@ -4,6 +4,7 @@ using Azure.ResourceManager;
 using Azure.ResourceManager.KeyVault;
 using Azure.Security.KeyVault.Secrets;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -51,16 +52,6 @@ namespace CallerCallee.Services
             }
 
             throw new AuthenticationFailedException("Could not find the keyvault name");
-        }
-
-        public async Task<(CommunicationUserIdentifierAndToken, CommunicationUserIdentifierAndToken)> GetNewTokens()
-        {
-            var connectionString = KeyVault.GetSecret(CS_CONNECTION_STRING).Value;
-            var communicationIdentity = new CommunicationIdentityClient(connectionString.Value);
-            var caller = await communicationIdentity.CreateUserAndTokenAsync([CommunicationTokenScope.VoIP], TimeSpan.FromHours(12));
-            var callee = await communicationIdentity.CreateUserAndTokenAsync([CommunicationTokenScope.VoIP], TimeSpan.FromHours(12));
-            
-            return (callee, caller);
         }
     }
 }

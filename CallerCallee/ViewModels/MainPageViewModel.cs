@@ -66,6 +66,9 @@ namespace CallerCallee.ViewModels
         [ObservableProperty]
         public partial int MaxParallelSimulations { get; set; } = AudioService.CountAvailableDevices() / 2;
 
+        [ObservableProperty]
+        public partial int DatasetsToSkipFromBeginning { get; set; } = 0;
+
         private State SelectedState = State.Todo;
 
         public MainPageViewModel()
@@ -109,7 +112,7 @@ namespace CallerCallee.ViewModels
                 return;
             }
 
-            var list = await datasetService.LoadDatasetEntries(file.Path);
+            var list = await datasetService.LoadDatasetEntries(file.Path, DatasetsToSkipFromBeginning);
             DatasetCount = datasetService.TodoDataset is null ? 0 : datasetService.TodoDataset.Count;
             settingsService.SetValue("datasetpath", file.Path);
 
@@ -164,7 +167,7 @@ namespace CallerCallee.ViewModels
 
             try
             {
-                var list = await datasetService.LoadDatasetEntries(path);
+                var list = await datasetService.LoadDatasetEntries(path, DatasetsToSkipFromBeginning);
                 DatasetCount = datasetService.TodoDataset is null ? 0 : datasetService.TodoDataset.Count;
                 list.ForEach(d => DataSource2.Add(new DatasetViewModel(d)));
                 await AuthenticateCommand.ExecuteAsync(null);
