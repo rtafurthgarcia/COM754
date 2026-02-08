@@ -72,8 +72,14 @@
                 </StackPanel>
                 <TextBlock TextAlignment="Left" Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2" Style="{StaticResource BodyStrongTextBlockStyle}"
                     Text="{x:Bind x:String.Format('Turn #{0}', CurrentTurnId), Mode=OneWay}"/>
-                <TextBlock TextAlignment="Left" Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2" Style="{StaticResource BodyStrongTextBlockStyle}" Width="180"
-                    Text="{x:Bind x:String.Format('Running time: {0}', RealDuration), Mode=OneWay}"/>
+                <StackPanel Orientation="Horizontal" Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2" HorizontalAlignment="Stretch">
+                    <TextBlock TextAlignment="Left" Style="{StaticResource BodyStrongTextBlockStyle}" Width="180"
+                        Text="{x:Bind x:String.Format('Running time: {0}', RealDuration), Mode=OneWay}"/>
+                    <Button Command="{x:Bind CancelPartCommand }" CommandParameter="{x:Bind Id}">
+                        <SymbolIcon>Cancel</SymbolIcon>
+                    </Button>
+                </StackPanel>
+
             </Grid>
         </DataTemplate>
     </Page.Resources>

@@ -36,7 +36,7 @@ namespace CallerCallee.Services
             return results;
         }
 
-        private bool SkipIfNecessary(DatasetEntry entry, bool skip)
+        private static bool SkipIfNecessary(DatasetEntry entry, bool skip)
         {
             if (skip)
             {

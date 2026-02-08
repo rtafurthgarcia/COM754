@@ -245,7 +245,7 @@ namespace CallerCallee.Models
                         // Implies the call was interrupted
                         if (datasetEntry.Children.Count > 0)
                         {
-                            Debug.WriteLine($"{datasetEntry.Id}: {datasetEntry.Exception.Message}");
+                            Debug.WriteLine($"{datasetEntry.Id}: Call interrupted unexpectedly");
                             WeakReferenceMessenger.Default.Send(
                                 new CallInterrupted(
                                     datasetEntry.Exception ?? new Exception("Call interrupted unexpectedly.") { Source = datasetEntry.Id}
