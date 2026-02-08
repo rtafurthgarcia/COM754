@@ -3,7 +3,7 @@ import time
 import json
 import csv
 from docx2pdf import convert
-from pydub import AudioSegment
+#from pydub import AudioSegment
 from azure.keyvault.secrets import SecretClient
 from azure.identity import DefaultAzureCredential
 from azure.core.credentials import AzureKeyCredential
@@ -367,35 +367,49 @@ def find_gaps():
             if (not os.path.exists(path_to_check)):
                 print(f"{row[0]} does not exist")
 
+def combine_results(path: str):
+    files = [f for f in os.listdir(path) if ".json" in f]
+    
+    combined_results = []
+    for file in files:
+        with open(os.path.abspath(os.path.join(path, file)), 'r') as file:
+            entry = json.load(file)
+            combined_results.append(entry)
+
+    with open(os.path.abspath(os.path.join(path, "results.json")), "w") as f:
+        json.dump(combined_results, f, indent=2)
+
+combine_results(os.path.abspath(os.path.join(".", "dataset", "v")))
+#combine_results(os.path.join("..", "dataset", "nv"))
 
 #transcriber = Transcriber()
-transcriber2 = Transcriber()
+#transcriber2 = Transcriber()
 
 #t1 = threading.Thread(target=transcriber.diarise_and_split_dataset, args=(os.path.abspath(os.path.join(".", "Audio Recordings", "NV-Processing")),))
-t2 = threading.Thread(target=transcriber2.diarise_and_split_dataset, args=(os.path.abspath(os.path.join(".", "Audio Recordings", "V-Processing")),))
+#t2 = threading.Thread(target=transcriber2.diarise_and_split_dataset, args=(os.path.abspath(os.path.join(".", "Audio Recordings", "V-Processing")),))
 
 #t1.start()
-t2.start()
+#t2.start()
 
 #t1.join()
 #t2.join()
-convert_existing_mp3s(
-    src=os.path.abspath(os.path.join(".", "Audio Recordings", "NV-Processing")),
-    dest=os.path.abspath(os.path.join(".", "Audio Recordings", "NV-Processing")),
-)
+#convert_existing_mp3s(
+#    src=os.path.abspath(os.path.join(".", "Audio Recordings", "NV-Processing")),
+#    dest=os.path.abspath(os.path.join(".", "Audio Recordings", "NV-Processing")),
+#)
 
-convert_existing_mp3s(
-    src=os.path.abspath(os.path.join(".", "Audio Recordings", "V")),
-    dest=os.path.abspath(os.path.join(".", "Audio Recordings", "V-Processing")),
-)
+#convert_existing_mp3s(
+#    src=os.path.abspath(os.path.join(".", "Audio Recordings", "V")),
+#    dest=os.path.abspath(os.path.join(".", "Audio Recordings", "V-Processing")),
+#)
 
-LLMSplitter().split_recordings()
+#LLMSplitter().split_recordings()
 
-augment_dataset(
-    src=os.path.abspath(os.path.join(".", "Audio Recordings", "NV")),
-    dest=os.path.abspath(os.path.join(".", "Audio Recordings", "NV-Processing")),
-    counter=410, 
-    count_to_reach=420
- )
+#augment_dataset(
+#    src=os.path.abspath(os.path.join(".", "Audio Recordings", "NV")),
+#    dest=os.path.abspath(os.path.join(".", "Audio Recordings", "NV-Processing")),
+#    counter=410, 
+#    count_to_reach=420
+# )
 
-find_gaps()
+#find_gaps()
