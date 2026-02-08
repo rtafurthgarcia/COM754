@@ -29,6 +29,11 @@ namespace CallerCallee.ViewModels
 
         public int Turns => Entry.Children?.Count ?? 0;
 
+        public DatasetEntry GetDatasetEntry()
+        {
+            return Entry;
+        }
+
         public State State
         {
             get => Entry.State;

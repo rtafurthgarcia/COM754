@@ -4,11 +4,10 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, Response, 
 from fastapi.responses import JSONResponse
 import uvicorn
 from call_analyser import CallAnalyser
-from models import Acknowledgment, CallEnded, CallStarted, ConnectionManager, SubscriptionValidation, TranscriptionData, TranscriptionMetadata, deserialise_event, deserialise_ws_message
+from models import Acknowledgment, CallEnded, CallStarted, SubscriptionValidation, TranscriptionData, TranscriptionMetadata, deserialise_event, deserialise_ws_message
 from container import Container
 
 def create_app(container: Container) -> FastAPI:
-    manager = ConnectionManager()
     logger = logging.getLogger("uvicorn.error")
 
     app = FastAPI()
@@ -58,7 +57,7 @@ def create_app(container: Container) -> FastAPI:
         websocket: WebSocket,
         call_analyser: CallAnalyser = Depends(get_service),
     ):
-        await manager.connect(websocket)
+        await websocket.accept()
         logger.info(f"{__name__}: connection received from {websocket.client or "unknown host?"}")
         call_connection_id = None
         #running_analyses = set()
@@ -74,13 +73,14 @@ def create_app(container: Container) -> FastAPI:
                     call_connection_id = message.callConnectionId
                 elif (isinstance(message, TranscriptionData) and call_connection_id is not None):
                     logger.info(f"{__name__}: {call_connection_id}: call is being analysed...")
-                    # needed to add each task to a set, to keep a strong reference
-                    # otherwise it gets garbage collected => means many results were never returned!
-                    # see: https://textual.textualize.io/blog/2023/02/11/the-heisenbug-lurking-in-your-async-code/
-                    await call_analyser.run_analysis(call_connection_id, message)
-                    #new_analysis = tg.create_task(call_analyser.run_analysis(call_connection_id, message))
-                    #running_analyses.add(new_analysis)
-                    #new_analysis.add_done_callback(running_analyses.discard)
+                    
+                    if (not call_analyser.is_still_connected(call_connection_id)):
+                        logger.info(f"{__name__}: stopping the transcription.")
+                        await websocket.close(1000, "call ended")
+                        break
+                    else:
+                        await call_analyser.run_analysis(call_connection_id, message)
+                    
 
         except WebSocketDisconnect:
             logger.info(f"{__name__}: disconnected")
@@ -89,7 +89,6 @@ def create_app(container: Container) -> FastAPI:
         except Exception as e:
             logger.error(f"{__name__}: connection lost due to an unexpected error: {e.with_traceback}")
         finally:
-            manager.remove(websocket)
             # if the call is still ongoing, means disconnection is temporary, and that another one will start
             if (call_connection_id is not None):
                 if (not call_analyser.is_still_connected(call_connection_id)):

@@ -326,16 +326,3 @@ def deserialise_ws_message(raw_message) -> TranscriptionData | TranscriptionMeta
         raise DeserializationError()
     else:
         return classes[dict_event["kind"]](dict_event[dict_event["kind"][0].lower() + dict_event["kind"][1:]])
-
-
-class ConnectionManager:
-    def __init__(self):
-        self.active_connections: list[WebSocket] = []
-        self.runner_active = False
-
-    async def connect(self, websocket: WebSocket):
-        await websocket.accept()
-        self.active_connections.append(websocket)
-
-    def remove(self, websocket: WebSocket):
-        self.active_connections.remove(websocket)

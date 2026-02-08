@@ -1,4 +1,5 @@
-﻿using Azure.Identity;
+﻿using Azure.Communication.Identity;
+using Azure.Identity;
 using Azure.ResourceManager;
 using Azure.ResourceManager.KeyVault;
 using Azure.Security.KeyVault.Secrets;
@@ -12,7 +13,7 @@ namespace CallerCallee.Services
 {
     internal class AuthenticationService
     {
-        public static readonly string CS_ENDPOINT_NAME = "com754-cs-endpoint";
+        public static readonly string CS_CONNECTION_STRING = "com754-cs-connectionstring";
         public static readonly string SB_CONNECTION_STRING = "com754-sb-connectionstring";
 
         private string keyVaultName;
@@ -50,6 +51,16 @@ namespace CallerCallee.Services
             }
 
             throw new AuthenticationFailedException("Could not find the keyvault name");
+        }
+
+        public async Task<(CommunicationUserIdentifierAndToken, CommunicationUserIdentifierAndToken)> GetNewTokens()
+        {
+            var connectionString = KeyVault.GetSecret(CS_CONNECTION_STRING).Value;
+            var communicationIdentity = new CommunicationIdentityClient(connectionString.Value);
+            var caller = await communicationIdentity.CreateUserAndTokenAsync([CommunicationTokenScope.VoIP], TimeSpan.FromHours(12));
+            var callee = await communicationIdentity.CreateUserAndTokenAsync([CommunicationTokenScope.VoIP], TimeSpan.FromHours(12));
+            
+            return (callee, caller);
         }
     }
 }

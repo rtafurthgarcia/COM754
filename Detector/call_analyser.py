@@ -5,7 +5,7 @@ import stat
 import time
 from azure.communication.callautomation import CallAutomationClient, TranscriptionOptions
 from azure.communication.identity import CommunicationIdentityClient
-from azure.core.exceptions import ServiceResponseError
+from azure.core.exceptions import ResourceNotFoundError, ServiceResponseError
 from azure.servicebus import ServiceBusClient, ServiceBusMessage
 from openai import AsyncAzureOpenAI
 from models import CallStarted, Classification, EndOfAnalysis, IntermediateClassification, OngoingCall, TranscriptionData, TurnOfConversation, get_prompts
@@ -77,18 +77,24 @@ class CallAnalyser:
 
         ongoing_call = self._ongoing_calls[call_connection_id]
         ongoing_call.call.hang_up(is_for_everyone=False)
-        #
     
     def is_still_connected(self, call_connection_id: str) -> bool:
-        if call_connection_id not in self._ongoing_calls.keys():
-            return False
-        
-        ongoing_call = self._ongoing_calls[call_connection_id]
-        state = ongoing_call.call.get_call_properties().call_connection_state
+        try:
+            if call_connection_id not in self._ongoing_calls.keys():
+                return False
+            
+            ongoing_call = self._ongoing_calls[call_connection_id]
+            state = ongoing_call.call.get_call_properties().call_connection_state
 
-        return state == "connected"
+            return state == "connected"
+        except ResourceNotFoundError:
+            return False
 
     async def run_analysis(self, call_connection_id: str, new_transcription: TranscriptionData): 
+        if (not self.is_still_connected(call_connection_id)):
+            logger.info(f"{__name__}: stopping the transcription.")
+            return
+
         timestamp = self._ongoing_calls[call_connection_id].add_new_turn(
             speaker=new_transcription.participantRawID, 
             text=new_transcription.text
@@ -181,9 +187,6 @@ class CallAnalyser:
             logger.info(f"{__name__}: #{turn.group_id}: {turn.id}: turn analysed.")
 
     async def notify_end_of_analysis(self, call_connection_id: str):
-        if (call_connection_id not in self._ongoing_calls.keys()):
-            return
-        
         try:
             call = self._ongoing_calls[call_connection_id]
 

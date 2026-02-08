@@ -22,12 +22,12 @@ namespace CallerCallee.ViewModels
             RealDuration = "00:00";
 
             // Initialize the timer
-            _timer = new DispatcherTimer
+            timer = new DispatcherTimer
             {
                 Interval = TimeSpan.FromSeconds(1)
             };
-            _timer.Tick += OnTick;
-            _timer.Start();
+            timer.Tick += OnTick;
+            timer.Start();
         }
 
         public Guid Guid => phoneCall.Guid;
@@ -48,18 +48,23 @@ namespace CallerCallee.ViewModels
         [NotifyPropertyChangedFor(nameof(Enhanced))]
         public partial float LastResultTimestamp { get; set; }
 
-        private readonly DispatcherTimer _timer;
-        private readonly Stopwatch _stopwatch = Stopwatch.StartNew();
+        private readonly DispatcherTimer timer;
+        private readonly Stopwatch stopwatch = Stopwatch.StartNew();
 
         public Speaker? CurrentSpeaker = Speaker.Caller;
 
         private void OnTick(object sender, object e)
         {
             // DispatcherTimer runs on UI thread, so this is safe
-            RealDuration = _stopwatch.Elapsed.ToString(@"mm\:ss");
+            RealDuration = stopwatch.Elapsed.ToString(@"mm\:ss");
 
-            if (_stopwatch.Elapsed.TotalSeconds - LastResultTimestamp > 90)
+            if (stopwatch.Elapsed.TotalSeconds - LastResultTimestamp > 90)
             {
+                StopTimer();
+                if (State.Equals(State.Completed))
+                {
+                    return;
+                }
                 // If the last result is older than 1.5 minute, is likely failed
                 // otherwise would have received the confirmation that its over by now.
                 AddDetectionResult(new Classifications() 
@@ -69,17 +74,16 @@ namespace CallerCallee.ViewModels
                     Speaker = Speaker.System,
                     EnhancedClassification = new ClassificationResult() 
                     { 
-                        Duration = (float)_stopwatch.Elapsed.TotalSeconds - LastResultTimestamp,
+                        Duration = (float)stopwatch.Elapsed.TotalSeconds - LastResultTimestamp,
                         Flag = Flag.Unknown
                     },
                     NaiveClassification = new ClassificationResult()
                     {
-                        Duration = (float)_stopwatch.Elapsed.TotalSeconds - LastResultTimestamp,
+                        Duration = (float)stopwatch.Elapsed.TotalSeconds - LastResultTimestamp,
                         Flag = Flag.Unknown
                     }
                 });
                 
-                StopTimer();
                 WeakReferenceMessenger.Default.Send(
                     new CallInterrupted(
                         new TimeoutException("Has received no classification for 90s.") { Source = Id.ToString() }
@@ -93,10 +97,11 @@ namespace CallerCallee.ViewModels
 
         public void StopTimer()
         {
-            _timer.Tick -= OnTick;
-            _timer.Stop();
-            _stopwatch.Stop();
+            timer.Tick -= OnTick;
+            timer.Stop();
+            stopwatch.Stop();
         }
+
 
         public static Brush GetRightColorState(State state)
         {

@@ -1,7 +1,8 @@
 {
   "profiles": {
     "CallerCallee (Package)": {
-      "commandName": "MsixPackage"
+      "commandName": "MsixPackage",
+      "nativeDebugging": true
     },
     "CallerCallee (Unpackaged)": {
       "commandName": "Project"

@@ -1,6 +1,4 @@
 ﻿using Azure.Communication.Identity;
-using Azure.Identity;
-using Azure.Security.KeyVault.Secrets;
 using CallerCallee.Models;
 using CommunityToolkit.Mvvm.DependencyInjection;
 using CommunityToolkit.Mvvm.Messaging;
@@ -16,7 +14,6 @@ namespace CallerCallee.Services
 {
     public sealed class CallerCalleeService
     {
-        private CommunicationIdentityClient communicationIdentity;
         private SemaphoreSlim semaphore;
         private readonly AuthenticationService authenticationService = Ioc.Default.GetRequiredService<AuthenticationService>();
         private readonly AudioService audioService = Ioc.Default.GetRequiredService<AudioService>();
@@ -27,9 +24,6 @@ namespace CallerCallee.Services
         public async Task StartSimulation(int maxAmountOfParallelCalls)
         {
             retries.Clear();
-            var csEndpoint = authenticationService.KeyVault.GetSecret(AuthenticationService.CS_ENDPOINT_NAME).Value;
-            communicationIdentity = new CommunicationIdentityClient(new Uri(csEndpoint.Value), authenticationService.Credential);
-            ArgumentNullException.ThrowIfNull(authenticationService.Credential);
 
             semaphore = new SemaphoreSlim(maxAmountOfParallelCalls, maxAmountOfParallelCalls);
             Debug.WriteLine($"Running simulation on {datasetService.TodoDataset.Count} calls.");
@@ -37,16 +31,12 @@ namespace CallerCallee.Services
             DatasetEntry callEntry = null;
             int? callerDevice = null;
             int? calleeDevice = null;
-            CommunicationUserIdentifierAndToken caller = null;
-            CommunicationUserIdentifierAndToken callee = null;
             PhoneCall phoneCall = null;
 
             while (!datasetService.TodoDataset.IsEmpty) 
             {
-                caller ??= await communicationIdentity.CreateUserAndTokenAsync([CommunicationTokenScope.VoIP]);
-                callee ??= await communicationIdentity.CreateUserAndTokenAsync([CommunicationTokenScope.VoIP]);
-
                 await semaphore.WaitAsync();
+                var (callerId, calleeId) = await authenticationService.GetNewTokens(); 
 
                 if (callEntry is null)
                 {
@@ -68,20 +58,11 @@ namespace CallerCallee.Services
 
                 try
                 {
-
-                    phoneCall = new PhoneCall(
-                        caller,
-                        callee,
-                        (int)callerDevice,
-                        (int)calleeDevice,
-                        callEntry
-                    );
+                    phoneCall = new PhoneCall(callerId, calleeId, (int)callerDevice, (int)calleeDevice, callEntry);
                     phoneCall.OnEndOfCall += CallEnded;
-                    callEntry.State = State.Ongoing;
                     await phoneCall.DialUp();
-                    usedIds.TryAdd(caller.User.Id, Speaker.Caller); // to link who's been identified during deserialisation
-                    usedIds.TryAdd(callee.User.Id, Speaker.Callee);
-                    //.TryAdd(phoneCall.Guid, callEntry);
+                    usedIds.TryAdd(callerId.User.Id, Speaker.Caller); // to link who's been identified during deserialisation
+                    usedIds.TryAdd(calleeId.User.Id, Speaker.Callee);
                 }
                 catch (VirtualMicrophoneNotFound)
                 {
@@ -116,8 +97,6 @@ namespace CallerCallee.Services
                 } 
                 finally
                 {
-                    caller = null;
-                    callee = null;
                     callerDevice = null;
                     calleeDevice = null;
                     callEntry = null;
@@ -134,6 +113,7 @@ namespace CallerCallee.Services
             {
                 phoneCall.OnEndOfCall -= CallEnded;
                 semaphore.Release();
+                
                 Debug.WriteLine($"{phoneCall.DatasetEntry.Id}: Call ended after {(int)(DateTime.Now - phoneCall.Caller.Call.StartTime).TotalSeconds}s.");
 
                 audioService.TryFreeDevice(phoneCall.Caller.AudioDeviceNumber);

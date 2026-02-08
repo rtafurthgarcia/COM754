@@ -62,7 +62,7 @@ namespace CallerCallee.ViewModels
         private readonly DetectionService detectionService = Ioc.Default.GetRequiredService<DetectionService>();
 
         private readonly DispatcherQueue dispatcherQueue = DispatcherQueue.GetForCurrentThread();
-        
+
         [ObservableProperty]
         public partial int MaxParallelSimulations { get; set; } = AudioService.CountAvailableDevices() / 2;
 
@@ -233,6 +233,7 @@ namespace CallerCallee.ViewModels
                     CalleeSymbol = Symbol.Mute
                 };
                 DataSource.Add(phoneCall);
+                DataSource2.Remove(DataSource2.Where(m => m.Id == phoneCall.Id).FirstOrDefault());
             });
         }
 
@@ -256,7 +257,7 @@ namespace CallerCallee.ViewModels
         {
             dispatcherQueue.TryEnqueue((async () =>
             {
-                var phoneCall = DataSource.Where(vm => vm.Id.Equals(message.Value.Source))
+                var phoneCall = DataSource.Where(vm => vm.Id == int.Parse(message.Value.Source))
                     .FirstOrDefault();
 
                 if (phoneCall != null)
@@ -268,7 +269,7 @@ namespace CallerCallee.ViewModels
                     phoneCall.CurrentTurnId = "";
                     phoneCall.CallerSymbol = Symbol.Mute;
                     phoneCall.CalleeSymbol = Symbol.Mute;
-                    OnPropertyChanged(nameof(DataSource2));
+                    DataSource2.Add(phoneCall);
 
                     if (phoneCall.IsActive)
                     {
@@ -296,8 +297,7 @@ namespace CallerCallee.ViewModels
             dispatcherQueue.TryEnqueue(() =>
             {
                 var (Id, TurnId) = message.Value;
-                var phoneCall = DataSource.Where(vm => vm.Id == Id)
-                    .FirstOrDefault();
+                var phoneCall = DataSource.Where(vm => vm.Id == Id).FirstOrDefault();
                 if (phoneCall != null)
                 {
                     if (TurnId != null)
@@ -306,6 +306,7 @@ namespace CallerCallee.ViewModels
                     }
                     else
                     {
+                        phoneCall.State = State.Analysing;
                         phoneCall.CurrentSpeaker = null;
                         phoneCall.CurrentTurnId = "";
                     }
@@ -335,7 +336,7 @@ namespace CallerCallee.ViewModels
         {
             dispatcherQueue.TryEnqueue(async () =>
             {
-                var phoneCall = DataSource.Where(vm => vm.Guid == message.Value)
+                var phoneCall = DataSource.Where(vm => vm.Guid.Equals(message.Value))
                     .FirstOrDefault();
 
                 if (phoneCall != null)
@@ -344,7 +345,8 @@ namespace CallerCallee.ViewModels
                     DataSource.Remove(phoneCall);
                     phoneCall.State = State.Completed;
                     phoneCall.CurrentTurnId = "";
-                    OnPropertyChanged(nameof(DataSource2));
+                    DataSource2.Add(phoneCall);
+                    await DatasetEntryExporter.ExportAsync(phoneCall.GetDatasetEntry());
                 }
 
                 if (datasetService.TodoDataset.IsEmpty)
