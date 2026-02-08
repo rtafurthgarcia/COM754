@@ -61,32 +61,10 @@ namespace CallerCallee.ViewModels
             if (stopwatch.Elapsed.TotalSeconds - LastResultTimestamp > 90)
             {
                 StopTimer();
-                if (State.Equals(State.Completed))
-                {
-                    return;
-                }
-                // If the last result is older than 1.5 minute, is likely failed
-                // otherwise would have received the confirmation that its over by now.
-                AddDetectionResult(new Classifications() 
-                {
-                    Id = "INTERRUPTION",
-                    GroupId = null,
-                    Speaker = Speaker.System,
-                    EnhancedClassification = new ClassificationResult() 
-                    { 
-                        Duration = (float)stopwatch.Elapsed.TotalSeconds - LastResultTimestamp,
-                        Flag = Flag.Unknown
-                    },
-                    NaiveClassification = new ClassificationResult()
-                    {
-                        Duration = (float)stopwatch.Elapsed.TotalSeconds - LastResultTimestamp,
-                        Flag = Flag.Unknown
-                    }
-                });
                 
                 WeakReferenceMessenger.Default.Send(
-                    new CallInterrupted(
-                        new TimeoutException("Has received no classification for 90s.") { Source = Id.ToString() }
+                    new EndOfAnalysis(
+                        Guid
                     )
                 );
             }

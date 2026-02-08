@@ -18,6 +18,7 @@ namespace CallerCallee.Services
         private readonly AuthenticationService authenticationService = Ioc.Default.GetRequiredService<AuthenticationService>();
         private readonly AudioService audioService = Ioc.Default.GetRequiredService<AudioService>();
         private readonly DatasetService datasetService = Ioc.Default.GetRequiredService<DatasetService>();
+        private CommunicationIdentityClient ciClient;
         private readonly ConcurrentDictionary<DatasetEntry, int> retries = [];
         public readonly ConcurrentDictionary<string, Speaker> usedIds = [];
         
@@ -25,7 +26,7 @@ namespace CallerCallee.Services
         {
             retries.Clear();
             var connectionString = authenticationService.KeyVault.GetSecret(AuthenticationService.CS_CONNECTION_STRING).Value;
-            var communicationIdentity = new CommunicationIdentityClient(connectionString.Value);
+            ciClient = new CommunicationIdentityClient(connectionString.Value);
             semaphore = new SemaphoreSlim(maxAmountOfParallelCalls, maxAmountOfParallelCalls);
             Debug.WriteLine($"Running simulation on {datasetService.TodoDataset.Count} calls.");
 
@@ -38,8 +39,8 @@ namespace CallerCallee.Services
             {
                 await semaphore.WaitAsync();
 
-                CommunicationUserIdentifierAndToken callerId = communicationIdentity.CreateUserAndToken([CommunicationTokenScope.VoIP]);
-                CommunicationUserIdentifierAndToken calleeId = communicationIdentity.CreateUserAndToken([CommunicationTokenScope.VoIP]);
+                CommunicationUserIdentifierAndToken callerId = ciClient.CreateUserAndToken([CommunicationTokenScope.VoIP]);
+                CommunicationUserIdentifierAndToken calleeId = ciClient.CreateUserAndToken([CommunicationTokenScope.VoIP]);
 
                 if (callEntry is null)
                 {
@@ -77,6 +78,8 @@ namespace CallerCallee.Services
                     semaphore.Release();
                     audioService.TryFreeDevice((int)calleeDevice);
                     audioService.TryFreeDevice((int)callerDevice);
+                    ciClient.DeleteUser(phoneCall.Caller.IdentifierAndToken.User);
+                    ciClient.DeleteUser(phoneCall.Callee.IdentifierAndToken.User);
                     e.Source = callEntry.Id;
                     if (retries.TryGetValue(callEntry, out var retryCount) && retryCount >= 3)
                     {
@@ -121,6 +124,9 @@ namespace CallerCallee.Services
 
                 audioService.TryFreeDevice(phoneCall.Caller.AudioDeviceNumber);
                 audioService.TryFreeDevice(phoneCall.Callee.AudioDeviceNumber);
+
+                ciClient.DeleteUser(phoneCall.Caller.IdentifierAndToken.User);
+                ciClient.DeleteUser(phoneCall.Callee.IdentifierAndToken.User);
             }
             //Console.WriteLine("The Elapsed event was raised at {0}", e.SignalTime);
         }

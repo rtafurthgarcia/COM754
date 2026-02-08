@@ -18,25 +18,38 @@ namespace CallerCallee.Services
         }
 
      
-        public async Task<List<DatasetEntry>> LoadDatasetEntries(string sourcePath, int skip = 0)
+        public async Task<List<DatasetEntry>> LoadDatasetEntries(string sourcePath, bool skip=false)
         {
             todoDataset.Clear();
 
             var data = await File.ReadAllTextAsync(sourcePath);
             var rows = data.Split(Environment.NewLine);
             var results = rows
-                .Skip(1 + skip)
+                .Skip(1)
                 .Where(row => row.Length > 3)
                 .Select(s => ParseRow(s, sourcePath))
                 .Select(FindTurnsOfConversation)
-                .Where(d => d.Children is not null)
+                .Where(d => d.Children is not null && SkipIfNecessary(d, skip))
                 .ToList();
             results
                 .ForEach(todoDataset.Enqueue);
             return results;
         }
 
-        internal DatasetEntry FindTurnsOfConversation(DatasetEntry entry)
+        private bool SkipIfNecessary(DatasetEntry entry, bool skip)
+        {
+            if (skip)
+            {
+                var dir = new DirectoryInfo(entry.FilePath).Parent;
+                return !File.Exists(Path.Combine(dir.FullName, entry.Id + ".results.json"));
+            } 
+            else
+            {
+                return true;
+            }
+        }
+
+        private DatasetEntry FindTurnsOfConversation(DatasetEntry entry)
         {
             if (entry.FilePath is null)
             {

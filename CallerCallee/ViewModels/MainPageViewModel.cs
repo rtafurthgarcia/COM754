@@ -67,7 +67,7 @@ namespace CallerCallee.ViewModels
         public partial int MaxParallelSimulations { get; set; } = AudioService.CountAvailableDevices() / 2;
 
         [ObservableProperty]
-        public partial int DatasetsToSkipFromBeginning { get; set; } = 0;
+        public partial bool SkipForExistingResults { get; set; } = false;
 
         private State SelectedState = State.Todo;
 
@@ -112,7 +112,7 @@ namespace CallerCallee.ViewModels
                 return;
             }
 
-            var list = await datasetService.LoadDatasetEntries(file.Path, DatasetsToSkipFromBeginning);
+            var list = await datasetService.LoadDatasetEntries(file.Path, SkipForExistingResults);
             DatasetCount = datasetService.TodoDataset is null ? 0 : datasetService.TodoDataset.Count;
             settingsService.SetValue("datasetpath", file.Path);
 
@@ -167,7 +167,7 @@ namespace CallerCallee.ViewModels
 
             try
             {
-                var list = await datasetService.LoadDatasetEntries(path, DatasetsToSkipFromBeginning);
+                var list = await datasetService.LoadDatasetEntries(path, SkipForExistingResults);
                 DatasetCount = datasetService.TodoDataset is null ? 0 : datasetService.TodoDataset.Count;
                 list.ForEach(d => DataSource2.Add(new DatasetViewModel(d)));
                 await AuthenticateCommand.ExecuteAsync(null);
@@ -375,7 +375,7 @@ namespace CallerCallee.ViewModels
                 var phoneCall = DataSource.Where(vm => vm.Guid.Equals(message.Value.GroupId))
                     .FirstOrDefault();
 
-                if (phoneCall != null)
+                if (phoneCall != null && !phoneCall.State.Equals(State.Completed))
                 {
                     phoneCall.LastResultTimestamp = new DateTimeOffset(DateTime.UtcNow).ToUnixTimeSeconds();
                     phoneCall.AddDetectionResult(message.Value);
