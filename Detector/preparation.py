@@ -2,7 +2,7 @@ import os
 import time
 import json
 import csv
-from docx2pdf import convert
+#from docx2pdf import convert
 #from pydub import AudioSegment
 from azure.keyvault.secrets import SecretClient
 from azure.identity import DefaultAzureCredential
@@ -368,18 +368,20 @@ def find_gaps():
                 print(f"{row[0]} does not exist")
 
 def combine_results(path: str):
-    files = [f for f in os.listdir(path) if ".json" in f]
-    
     combined_results = []
-    for file in files:
-        with open(os.path.abspath(os.path.join(path, file)), 'r') as file:
-            entry = json.load(file)
-            combined_results.append(entry)
+    
+    for dataset in ("v", "nv"):
+        dataset_path = os.path.join(path, dataset)
+        files = [f for f in os.listdir(dataset_path) if ".json" in f]
+        for file in files:
+            with open(os.path.abspath(os.path.join(dataset_path, file)), 'r') as file:
+                entry = json.load(file)
+                combined_results.append(entry)
 
     with open(os.path.abspath(os.path.join(path, "results.json")), "w") as f:
         json.dump(combined_results, f, indent=2)
 
-combine_results(os.path.abspath(os.path.join(".", "dataset", "v")))
+combine_results(os.path.abspath(os.path.join(".", "dataset")))
 #combine_results(os.path.join("..", "dataset", "nv"))
 
 #transcriber = Transcriber()
