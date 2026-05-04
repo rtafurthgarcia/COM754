@@ -10,7 +10,7 @@ Other soft dependencies may have to be adapted depending on the OS on which this
  - Azure devtunnel
 
 Starting the project requires following those steps:
-0) Reproducing the project's Azure infrastructure or importing it from the `azure.json`
+0) Reproducing the original infrastructure by importing it from the `main.bicep` file
 1) Obtaining the dataset (from us, by emailing us)
 2) Authenticating with Azure
 3) Running the devtunnel 

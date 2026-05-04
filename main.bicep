@@ -1138,9 +1138,6 @@ resource virtualNetworks_com754_vnet_name_com754_subnet 'Microsoft.Network/virtu
     privateEndpointNetworkPolicies: 'Disabled'
     privateLinkServiceNetworkPolicies: 'Enabled'
   }
-  dependsOn: [
-    virtualNetworks_com754_vnet_name_resource
-  ]
 }
 
 resource workspaces_com754_ls_name_LogManagement_workspaces_com754_ls_name_General_AlphabeticallySortedComputers 'Microsoft.OperationalInsights/workspaces/savedSearches@2025-07-01' = {
